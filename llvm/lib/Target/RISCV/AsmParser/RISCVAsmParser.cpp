@@ -624,7 +624,7 @@ public:
     if (!isImm())
       return false;
     bool IsConstantImm = evaluateConstantImm(getImm(), Imm, VK);
-    return IsConstantImm && isUInt<12>(Imm)  && VK == RISCVMCExpr::VK_RISCV_None;
+    return IsConstantImm && isUInt<12>(Imm) && (Imm & 1) == 0  && VK == RISCVMCExpr::VK_RISCV_None;
   }
 
   bool isSImm5() const {

@@ -1,7 +1,7 @@
 ; REQUIRES: x86
 ; Set up an import library for a DLL that will do the indirect call.
 ; RUN: echo -e 'LIBRARY library\nEXPORTS\n  do_indirect_call\n' > %t.def
-; RUN: lld-link -lib -def:%t.def -out:%t.lib -machine:x64
+; RUN: lld-link -def:%t.def -out:%t.lib -machine:x64
 
 ; Generate an object that will have the load configuration normally provided by
 ; the CRT.
@@ -16,7 +16,11 @@
 ; CHECK:      LoadConfig [
 ; CHECK:        GuardCFFunctionTable: 0x{{[^0].*}}
 ; CHECK-NEXT:   GuardCFFunctionCount: 2
-; CHECK-NEXT:   GuardFlags: 0x10500
+; CHECK-NEXT:   GuardFlags [ (0x10500)
+; CHECK-NEXT:     CF_FUNCTION_TABLE_PRESENT (0x400)
+; CHECK-NEXT:     CF_INSTRUMENTED (0x100)
+; CHECK-NEXT:     CF_LONGJUMP_TABLE_PRESENT (0x10000)
+; CHECK-NEXT:   ]
 ; CHECK:      ]
 ; CHECK:      GuardFidTable [
 ; CHECK-NEXT:   0x180{{.*}}

@@ -8,8 +8,12 @@
 //===----------------------------------------------------------------------===//
 
 // Ensure that the unwinder can cope with the signal handler.
-// REQUIRES: x86_64-linux
+// REQUIRES: linux && (target={{aarch64-.+}} || target={{s390x-.+}} || target={{x86_64-.+}})
 
+// TODO: Figure out why this fails with Memory Sanitizer.
+// XFAIL: msan
+
+#undef NDEBUG
 #include <assert.h>
 #include <dlfcn.h>
 #include <signal.h>
@@ -23,10 +27,11 @@
 _Unwind_Reason_Code frame_handler(struct _Unwind_Context* ctx, void* arg) {
   (void)arg;
   Dl_info info = { 0, 0, 0, 0 };
-  assert(dladdr((void*)_Unwind_GetIP(ctx), &info));
 
-  // Unwind util the main is reached, above frames deeped on the platfrom and architecture.
-  if(info.dli_sname && !strcmp("main", info.dli_sname)) {
+  // Unwind util the main is reached, above frames depend on the platform and
+  // architecture.
+  if (dladdr(reinterpret_cast<void *>(_Unwind_GetIP(ctx)), &info) &&
+      info.dli_sname && !strcmp("main", info.dli_sname)) {
     _Exit(0);
   }
   return _URC_NO_REASON;

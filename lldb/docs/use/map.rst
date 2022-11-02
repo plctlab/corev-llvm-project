@@ -199,7 +199,7 @@ Execution Commands
                <td class="content">
                </td>
                <td class="content">
-                  <b>(lldb)</b> process launch -v DEBUG=1
+                  <b>(lldb)</b> process launch -E DEBUG=1
                   <br>
                </td>
          </tr>
@@ -407,6 +407,22 @@ Execution Commands
                </td>
                <td class="content">
                   <b>(lldb)</b> thread until 12
+               </td>
+         </tr>
+
+         <tr>
+               <td class="header" colspan="2">Show the current frame and source line.</td>
+         </tr>
+         <tr>
+               <td class="content">
+                  <b>(gdb)</b> frame
+               </td>
+               <td class="content">
+                  <b>(lldb)</b> frame select
+                  <br>
+                  <b>(lldb)</b> f
+                  <br>
+                  <b>(lldb)</b> process status
                </td>
          </tr>
 

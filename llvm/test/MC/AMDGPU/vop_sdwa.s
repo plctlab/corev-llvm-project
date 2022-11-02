@@ -1,11 +1,11 @@
-// RUN: not llvm-mc -arch=amdgcn -mcpu=tonga -show-encoding %s | FileCheck %s --check-prefix=GCN --check-prefix=VI --check-prefix=GFX89
-// RUN: not llvm-mc -arch=amdgcn -mcpu=gfx900 -show-encoding %s | FileCheck %s --check-prefix=GCN --check-prefix=GFX9 --check-prefix=GFX89
+// RUN: not llvm-mc -arch=amdgcn -mcpu=tonga -show-encoding %s | FileCheck %s --check-prefixes=VI,GFX89
+// RUN: not llvm-mc -arch=amdgcn -mcpu=gfx900 -show-encoding %s | FileCheck %s --check-prefixes=GFX9,GFX89
 
-// RUN: not llvm-mc -arch=amdgcn %s 2>&1 | FileCheck %s --check-prefix=NOSI --check-prefix=NOSICI --implicit-check-not=error:
-// RUN: not llvm-mc -arch=amdgcn -mcpu=tahiti %s 2>&1 | FileCheck %s --check-prefix=NOSI --check-prefix=NOSICI --implicit-check-not=error:
+// RUN: not llvm-mc -arch=amdgcn %s 2>&1 | FileCheck %s --check-prefixes=NOSI,NOSICI --implicit-check-not=error:
+// RUN: not llvm-mc -arch=amdgcn -mcpu=tahiti %s 2>&1 | FileCheck %s --check-prefixes=NOSI,NOSICI --implicit-check-not=error:
 // RUN: not llvm-mc -arch=amdgcn -mcpu=bonaire %s 2>&1 | FileCheck %s --check-prefixes=NOCI,NOSICI --implicit-check-not=error:
-// RUN: not llvm-mc -arch=amdgcn -mcpu=tonga %s 2>&1 | FileCheck %s --check-prefix=NOVI --check-prefix=NOGFX89 --implicit-check-not=error:
-// RUN: not llvm-mc -arch=amdgcn -mcpu=gfx900 %s 2>&1 | FileCheck %s --check-prefix=NOGFX9 --check-prefix=NOGFX89 --implicit-check-not=error:
+// RUN: not llvm-mc -arch=amdgcn -mcpu=tonga %s 2>&1 | FileCheck %s --check-prefixes=NOVI,NOGFX89 --implicit-check-not=error:
+// RUN: not llvm-mc -arch=amdgcn -mcpu=gfx900 %s 2>&1 | FileCheck %s --check-prefixes=NOGFX9,NOGFX89 --implicit-check-not=error:
 
 //---------------------------------------------------------------------------//
 // Check SDWA operands
@@ -553,17 +553,17 @@ v_subb_u32_sdwa v1, vcc, v2, v3, vcc dst_sel:DWORD dst_unused:UNUSED_PAD src0_se
 // VI: v_subbrev_u32_sdwa v1, vcc, v2, v3, vcc dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:WORD_1 src1_sel:BYTE_2 ; encoding: [0xf9,0x06,0x02,0x3c,0x02,0x06,0x05,0x02]
 v_subbrev_u32_sdwa v1, vcc, v2, v3, vcc dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:WORD_1 src1_sel:BYTE_2
 
-// NOSICI: error: invalid operand for instruction
+// NOSICI: error: sdwa variant of this instruction is not supported
 // NOVI: error: instruction not supported on this GPU
 // GFX9: v_add_co_u32_sdwa v1, vcc, v2, v3 dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:WORD_1 src1_sel:BYTE_2 ; encoding: [0xf9,0x06,0x02,0x32,0x02,0x06,0x05,0x02]
 v_add_co_u32_sdwa v1, vcc, v2, v3 dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:WORD_1 src1_sel:BYTE_2
 
-// NOSICI: error: invalid operand for instruction
+// NOSICI: error: sdwa variant of this instruction is not supported
 // NOVI: error: instruction not supported on this GPU
 // GFX9: v_sub_co_u32_sdwa v1, vcc, v2, v3 dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:WORD_1 src1_sel:BYTE_2 ; encoding: [0xf9,0x06,0x02,0x34,0x02,0x06,0x05,0x02]
 v_sub_co_u32_sdwa v1, vcc, v2, v3 dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:WORD_1 src1_sel:BYTE_2
 
-// NOSICI: error: invalid operand for instruction
+// NOSICI: error: sdwa variant of this instruction is not supported
 // NOVI: error: instruction not supported on this GPU
 // GFX9: v_subrev_co_u32_sdwa v1, vcc, v2, v3 dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:WORD_1 src1_sel:BYTE_2 ; encoding: [0xf9,0x06,0x02,0x36,0x02,0x06,0x05,0x02]
 v_subrev_co_u32_sdwa v1, vcc, v2, v3 dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:WORD_1 src1_sel:BYTE_2
@@ -583,21 +583,25 @@ v_subb_co_u32_sdwa v1, vcc, v2, v3, vcc dst_sel:DWORD dst_unused:UNUSED_PAD src0
 // GFX9: v_subbrev_co_u32_sdwa v1, vcc, v2, v3, vcc dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:WORD_1 src1_sel:BYTE_2 ; encoding: [0xf9,0x06,0x02,0x3c,0x02,0x06,0x05,0x02]
 v_subbrev_co_u32_sdwa v1, vcc, v2, v3, vcc dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:WORD_1 src1_sel:BYTE_2
 
-// NOSICI: error: not a valid operand.
+// NOSICI: error: sdwa variant of this instruction is not supported
 // GFX89:  v_cndmask_b32_sdwa v5, v1, v2, vcc dst_sel:BYTE_0 dst_unused:UNUSED_PAD src0_sel:DWORD src1_sel:DWORD ; encoding: [0xf9,0x04,0x0a,0x00,0x01,0x00,0x06,0x06]
 v_cndmask_b32_sdwa v5, v1, v2, vcc dst_sel:BYTE_0 dst_unused:UNUSED_PAD src0_sel:DWORD src1_sel:DWORD
 
-// NOSICI: error: not a valid operand.
+// NOSICI: error: sdwa variant of this instruction is not supported
 // NOVI:   error: invalid operand for instruction
 // GFX9:   v_cndmask_b32_sdwa v5, -1, v2, vcc dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:DWORD src1_sel:DWORD ; encoding: [0xf9,0x04,0x0a,0x00,0xc1,0x06,0x86,0x06]
 v_cndmask_b32_sdwa v5, -1, v2, vcc dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:DWORD src1_sel:DWORD
 
-// NOSICI: error: not a valid operand.
-// GFX89:  v_cndmask_b32_sdwa v5, v1, sext(v2), vcc dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:DWORD src1_sel:DWORD ; encoding: [0xf9,0x04,0x0a,0x00,0x01,0x06,0x06,0x0e]
-v_cndmask_b32_sdwa v5, v1, sext(v2), vcc dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:DWORD src1_sel:DWORD
+// NOSICI: error: sdwa variant of this instruction is not supported
+// GFX89:  v_cndmask_b32_sdwa v5, -v1, |v2|, vcc dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:DWORD src1_sel:DWORD ; encoding: [0xf9,0x04,0x0a,0x00,0x01,0x06,0x16,0x26]
+v_cndmask_b32_sdwa v5, -v1, |v2|, vcc dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:DWORD src1_sel:DWORD
+
+// NOSICI: error: sdwa variant of this instruction is not supported
+// GFX89:  v_cndmask_b32_sdwa v5, |v1|, -v2, vcc dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:DWORD src1_sel:DWORD ; encoding: [0xf9,0x04,0x0a,0x00,0x01,0x06,0x26,0x16]
+v_cndmask_b32_sdwa v5, |v1|, -v2, vcc dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:DWORD src1_sel:DWORD
 
 v_cndmask_b32_sdwa v5, vcc_lo, v2, vcc dst_sel:DWORD dst_unused:UNUSED_PRESERVE src0_sel:DWORD src1_sel:DWORD
-// NOSICI: error: not a valid operand
+// NOSICI: error: sdwa variant of this instruction is not supported
 // NOVI:   error: invalid operand for instruction
 // NOGFX9: error: invalid operand (violates constant bus restrictions)
 
@@ -1088,6 +1092,14 @@ v_add_f32 v0, v0, v0 clamp div:2 dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:WO
 // NOVI: error: instruction not supported on this GPU
 // GFX9: v_screen_partition_4se_b32_sdwa v5, v1 dst_sel:DWORD dst_unused:UNUSED_PRESERVE src0_sel:BYTE_0 ; encoding: [0xf9,0x6e,0x0a,0x7e,0x01,0x16,0x00,0x00]
 v_screen_partition_4se_b32_sdwa v5, v1 src0_sel:BYTE_0
+
+// NOSICI: error: sdwa variant of this instruction is not supported
+// NOGFX89: error: not a valid operand.
+v_cndmask_b32_sdwa v5, v1, sext(v2), vcc dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:DWORD src1_sel:DWORD
+
+// NOSICI: error: sdwa variant of this instruction is not supported
+// NOGFX89: error: not a valid operand.
+v_cndmask_b32_sdwa v5, sext(v1), v2, vcc dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:DWORD src1_sel:DWORD
 
 //===----------------------------------------------------------------------===//
 // Validate register size checks (bug 37943)

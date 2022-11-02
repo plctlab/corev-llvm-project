@@ -1,10 +1,16 @@
-//===------------------------- dynamic_cast.pass.cpp ----------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+
+// PR33425 and PR33487 are not fixed until the dylib shipped with macOS 10.15
+// XFAIL: use_system_cxx_lib && target={{.+}}-apple-macosx10.14
+
+// PR33439 isn't fixed until the dylib shipped with macOS 10.14
+// XFAIL: use_system_cxx_lib && target={{.+}}-apple-macosx10.{{9|10|11|12|13}}
 
 #include <cassert>
 

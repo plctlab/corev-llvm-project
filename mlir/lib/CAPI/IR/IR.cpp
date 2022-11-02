@@ -9,15 +9,22 @@
 #include "mlir-c/IR.h"
 #include "mlir-c/Support.h"
 
+#include "mlir/AsmParser/AsmParser.h"
+#include "mlir/Bytecode/BytecodeWriter.h"
 #include "mlir/CAPI/IR.h"
 #include "mlir/CAPI/Support.h"
 #include "mlir/CAPI/Utils.h"
 #include "mlir/IR/Attributes.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Dialect.h"
-#include "mlir/IR/Module.h"
+#include "mlir/IR/Location.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Types.h"
-#include "mlir/Parser.h"
+#include "mlir/IR/Verifier.h"
+#include "mlir/Interfaces/InferTypeOpInterface.h"
+#include "mlir/Parser/Parser.h"
+
+#include <cstddef>
 
 using namespace mlir;
 
@@ -30,21 +37,26 @@ MlirContext mlirContextCreate() {
   return wrap(context);
 }
 
-int mlirContextEqual(MlirContext ctx1, MlirContext ctx2) {
+bool mlirContextEqual(MlirContext ctx1, MlirContext ctx2) {
   return unwrap(ctx1) == unwrap(ctx2);
 }
 
 void mlirContextDestroy(MlirContext context) { delete unwrap(context); }
 
-void mlirContextSetAllowUnregisteredDialects(MlirContext context, int allow) {
+void mlirContextSetAllowUnregisteredDialects(MlirContext context, bool allow) {
   unwrap(context)->allowUnregisteredDialects(allow);
 }
 
-int mlirContextGetAllowUnregisteredDialects(MlirContext context) {
+bool mlirContextGetAllowUnregisteredDialects(MlirContext context) {
   return unwrap(context)->allowsUnregisteredDialects();
 }
 intptr_t mlirContextGetNumRegisteredDialects(MlirContext context) {
   return static_cast<intptr_t>(unwrap(context)->getAvailableDialects().size());
+}
+
+void mlirContextAppendDialectRegistry(MlirContext ctx,
+                                      MlirDialectRegistry registry) {
+  unwrap(ctx)->appendDialectRegistry(*unwrap(registry));
 }
 
 // TODO: expose a cheaper way than constructing + sorting a vector only to take
@@ -58,6 +70,18 @@ MlirDialect mlirContextGetOrLoadDialect(MlirContext context,
   return wrap(unwrap(context)->getOrLoadDialect(unwrap(name)));
 }
 
+bool mlirContextIsRegisteredOperation(MlirContext context, MlirStringRef name) {
+  return unwrap(context)->isOperationRegistered(unwrap(name));
+}
+
+void mlirContextEnableMultithreading(MlirContext context, bool enable) {
+  return unwrap(context)->enableMultithreading(enable);
+}
+
+void mlirContextLoadAllAvailableDialects(MlirContext context) {
+  unwrap(context)->loadAllAvailableDialects();
+}
+
 //===----------------------------------------------------------------------===//
 // Dialect API.
 //===----------------------------------------------------------------------===//
@@ -66,12 +90,24 @@ MlirContext mlirDialectGetContext(MlirDialect dialect) {
   return wrap(unwrap(dialect)->getContext());
 }
 
-int mlirDialectEqual(MlirDialect dialect1, MlirDialect dialect2) {
+bool mlirDialectEqual(MlirDialect dialect1, MlirDialect dialect2) {
   return unwrap(dialect1) == unwrap(dialect2);
 }
 
 MlirStringRef mlirDialectGetNamespace(MlirDialect dialect) {
   return wrap(unwrap(dialect)->getNamespace());
+}
+
+//===----------------------------------------------------------------------===//
+// DialectRegistry API.
+//===----------------------------------------------------------------------===//
+
+MlirDialectRegistry mlirDialectRegistryCreate() {
+  return wrap(new DialectRegistry());
+}
+
+void mlirDialectRegistryDestroy(MlirDialectRegistry registry) {
+  delete unwrap(registry);
 }
 
 //===----------------------------------------------------------------------===//
@@ -92,7 +128,7 @@ void mlirOpPrintingFlagsElideLargeElementsAttrs(MlirOpPrintingFlags flags,
 }
 
 void mlirOpPrintingFlagsEnableDebugInfo(MlirOpPrintingFlags flags,
-                                        int prettyForm) {
+                                        bool prettyForm) {
   unwrap(flags)->enableDebugInfo(/*prettyForm=*/prettyForm);
 }
 
@@ -109,13 +145,39 @@ void mlirOpPrintingFlagsUseLocalScope(MlirOpPrintingFlags flags) {
 //===----------------------------------------------------------------------===//
 
 MlirLocation mlirLocationFileLineColGet(MlirContext context,
-                                        const char *filename, unsigned line,
+                                        MlirStringRef filename, unsigned line,
                                         unsigned col) {
-  return wrap(FileLineColLoc::get(filename, line, col, unwrap(context)));
+  return wrap(Location(
+      FileLineColLoc::get(unwrap(context), unwrap(filename), line, col)));
+}
+
+MlirLocation mlirLocationCallSiteGet(MlirLocation callee, MlirLocation caller) {
+  return wrap(Location(CallSiteLoc::get(unwrap(callee), unwrap(caller))));
+}
+
+MlirLocation mlirLocationFusedGet(MlirContext ctx, intptr_t nLocations,
+                                  MlirLocation const *locations,
+                                  MlirAttribute metadata) {
+  SmallVector<Location, 4> locs;
+  ArrayRef<Location> unwrappedLocs = unwrapList(nLocations, locations, locs);
+  return wrap(FusedLoc::get(unwrappedLocs, unwrap(metadata), unwrap(ctx)));
+}
+
+MlirLocation mlirLocationNameGet(MlirContext context, MlirStringRef name,
+                                 MlirLocation childLoc) {
+  if (mlirLocationIsNull(childLoc))
+    return wrap(
+        Location(NameLoc::get(StringAttr::get(unwrap(context), unwrap(name)))));
+  return wrap(Location(NameLoc::get(
+      StringAttr::get(unwrap(context), unwrap(name)), unwrap(childLoc))));
 }
 
 MlirLocation mlirLocationUnknownGet(MlirContext context) {
-  return wrap(UnknownLoc::get(unwrap(context)));
+  return wrap(Location(UnknownLoc::get(unwrap(context))));
+}
+
+bool mlirLocationEqual(MlirLocation l1, MlirLocation l2) {
+  return unwrap(l1) == unwrap(l2);
 }
 
 MlirContext mlirLocationGetContext(MlirLocation location) {
@@ -136,8 +198,9 @@ MlirModule mlirModuleCreateEmpty(MlirLocation location) {
   return wrap(ModuleOp::create(unwrap(location)));
 }
 
-MlirModule mlirModuleCreateParse(MlirContext context, const char *module) {
-  OwningModuleRef owning = parseSourceString(module, unwrap(context));
+MlirModule mlirModuleCreateParse(MlirContext context, MlirStringRef module) {
+  OwningOpRef<ModuleOp> owning =
+      parseSourceString<ModuleOp>(unwrap(module), unwrap(context));
   if (!owning)
     return MlirModule{nullptr};
   return MlirModule{owning.release().getOperation()};
@@ -152,19 +215,24 @@ MlirBlock mlirModuleGetBody(MlirModule module) {
 }
 
 void mlirModuleDestroy(MlirModule module) {
-  // Transfer ownership to an OwningModuleRef so that its destructor is called.
-  OwningModuleRef(unwrap(module));
+  // Transfer ownership to an OwningOpRef<ModuleOp> so that its destructor is
+  // called.
+  OwningOpRef<ModuleOp>(unwrap(module));
 }
 
 MlirOperation mlirModuleGetOperation(MlirModule module) {
   return wrap(unwrap(module).getOperation());
 }
 
+MlirModule mlirModuleFromOperation(MlirOperation op) {
+  return wrap(dyn_cast<ModuleOp>(unwrap(op)));
+}
+
 //===----------------------------------------------------------------------===//
 // Operation state API.
 //===----------------------------------------------------------------------===//
 
-MlirOperationState mlirOperationStateGet(const char *name, MlirLocation loc) {
+MlirOperationState mlirOperationStateGet(MlirStringRef name, MlirLocation loc) {
   MlirOperationState state;
   state.name = name;
   state.location = loc;
@@ -178,6 +246,7 @@ MlirOperationState mlirOperationStateGet(const char *name, MlirLocation loc) {
   state.successors = nullptr;
   state.nAttributes = 0;
   state.attributes = nullptr;
+  state.enableResultTypeInference = false;
   return state;
 }
 
@@ -188,34 +257,69 @@ MlirOperationState mlirOperationStateGet(const char *name, MlirLocation loc) {
   state->sizeName += n;
 
 void mlirOperationStateAddResults(MlirOperationState *state, intptr_t n,
-                                  MlirType *results) {
+                                  MlirType const *results) {
   APPEND_ELEMS(MlirType, nResults, results);
 }
 
 void mlirOperationStateAddOperands(MlirOperationState *state, intptr_t n,
-                                   MlirValue *operands) {
+                                   MlirValue const *operands) {
   APPEND_ELEMS(MlirValue, nOperands, operands);
 }
 void mlirOperationStateAddOwnedRegions(MlirOperationState *state, intptr_t n,
-                                       MlirRegion *regions) {
+                                       MlirRegion const *regions) {
   APPEND_ELEMS(MlirRegion, nRegions, regions);
 }
 void mlirOperationStateAddSuccessors(MlirOperationState *state, intptr_t n,
-                                     MlirBlock *successors) {
+                                     MlirBlock const *successors) {
   APPEND_ELEMS(MlirBlock, nSuccessors, successors);
 }
 void mlirOperationStateAddAttributes(MlirOperationState *state, intptr_t n,
-                                     MlirNamedAttribute *attributes) {
+                                     MlirNamedAttribute const *attributes) {
   APPEND_ELEMS(MlirNamedAttribute, nAttributes, attributes);
+}
+
+void mlirOperationStateEnableResultTypeInference(MlirOperationState *state) {
+  state->enableResultTypeInference = true;
 }
 
 //===----------------------------------------------------------------------===//
 // Operation API.
 //===----------------------------------------------------------------------===//
 
-MlirOperation mlirOperationCreate(const MlirOperationState *state) {
+static LogicalResult inferOperationTypes(OperationState &state) {
+  MLIRContext *context = state.getContext();
+  Optional<RegisteredOperationName> info = state.name.getRegisteredInfo();
+  if (!info) {
+    emitError(state.location)
+        << "type inference was requested for the operation " << state.name
+        << ", but the operation was not registered. Ensure that the dialect "
+           "containing the operation is linked into MLIR and registered with "
+           "the context";
+    return failure();
+  }
+
+  // Fallback to inference via an op interface.
+  auto *inferInterface = info->getInterface<InferTypeOpInterface>();
+  if (!inferInterface) {
+    emitError(state.location)
+        << "type inference was requested for the operation " << state.name
+        << ", but the operation does not support type inference. Result "
+           "types must be specified explicitly.";
+    return failure();
+  }
+
+  if (succeeded(inferInterface->inferReturnTypes(
+          context, state.location, state.operands,
+          state.attributes.getDictionary(context), state.regions, state.types)))
+    return success();
+
+  // Diagnostic emitted by interface.
+  return failure();
+}
+
+MlirOperation mlirOperationCreate(MlirOperationState *state) {
   assert(state);
-  OperationState cppState(unwrap(state->location), state->name);
+  OperationState cppState(unwrap(state->location), unwrap(state->name));
   SmallVector<Type, 4> resultStorage;
   SmallVector<Value, 8> operandStorage;
   SmallVector<Block *, 2> successorStorage;
@@ -227,25 +331,54 @@ MlirOperation mlirOperationCreate(const MlirOperationState *state) {
 
   cppState.attributes.reserve(state->nAttributes);
   for (intptr_t i = 0; i < state->nAttributes; ++i)
-    cppState.addAttribute(state->attributes[i].name,
+    cppState.addAttribute(unwrap(state->attributes[i].name),
                           unwrap(state->attributes[i].attribute));
 
   for (intptr_t i = 0; i < state->nRegions; ++i)
     cppState.addRegion(std::unique_ptr<Region>(unwrap(state->regions[i])));
 
-  MlirOperation result = wrap(Operation::create(cppState));
   free(state->results);
   free(state->operands);
   free(state->successors);
   free(state->regions);
   free(state->attributes);
+
+  // Infer result types.
+  if (state->enableResultTypeInference) {
+    assert(cppState.types.empty() &&
+           "result type inference enabled and result types provided");
+    if (failed(inferOperationTypes(cppState)))
+      return {nullptr};
+  }
+
+  MlirOperation result = wrap(Operation::create(cppState));
   return result;
+}
+
+MlirOperation mlirOperationClone(MlirOperation op) {
+  return wrap(unwrap(op)->clone());
 }
 
 void mlirOperationDestroy(MlirOperation op) { unwrap(op)->erase(); }
 
-int mlirOperationEqual(MlirOperation op, MlirOperation other) {
+void mlirOperationRemoveFromParent(MlirOperation op) { unwrap(op)->remove(); }
+
+bool mlirOperationEqual(MlirOperation op, MlirOperation other) {
   return unwrap(op) == unwrap(other);
+}
+
+MlirContext mlirOperationGetContext(MlirOperation op) {
+  return wrap(unwrap(op)->getContext());
+}
+
+MlirLocation mlirOperationGetLocation(MlirOperation op) {
+  return wrap(unwrap(op)->getLoc());
+}
+
+MlirTypeID mlirOperationGetTypeID(MlirOperation op) {
+  if (auto info = unwrap(op)->getRegisteredInfo())
+    return wrap(info->getTypeID());
+  return {nullptr};
 }
 
 MlirIdentifier mlirOperationGetName(MlirOperation op) {
@@ -268,6 +401,22 @@ MlirRegion mlirOperationGetRegion(MlirOperation op, intptr_t pos) {
   return wrap(&unwrap(op)->getRegion(static_cast<unsigned>(pos)));
 }
 
+MlirRegion mlirOperationGetFirstRegion(MlirOperation op) {
+  Operation *cppOp = unwrap(op);
+  if (cppOp->getNumRegions() == 0)
+    return wrap(static_cast<Region *>(nullptr));
+  return wrap(&cppOp->getRegion(0));
+}
+
+MlirRegion mlirRegionGetNextInOperation(MlirRegion region) {
+  Region *cppRegion = unwrap(region);
+  Operation *parent = cppRegion->getParentOp();
+  intptr_t next = cppRegion->getRegionNumber() + 1;
+  if (parent->getNumRegions() > next)
+    return wrap(&parent->getRegion(next));
+  return wrap(static_cast<Region *>(nullptr));
+}
+
 MlirOperation mlirOperationGetNextInBlock(MlirOperation op) {
   return wrap(unwrap(op)->getNextNode());
 }
@@ -278,6 +427,11 @@ intptr_t mlirOperationGetNumOperands(MlirOperation op) {
 
 MlirValue mlirOperationGetOperand(MlirOperation op, intptr_t pos) {
   return wrap(unwrap(op)->getOperand(static_cast<unsigned>(pos)));
+}
+
+void mlirOperationSetOperand(MlirOperation op, intptr_t pos,
+                             MlirValue newValue) {
+  unwrap(op)->setOperand(static_cast<unsigned>(pos), unwrap(newValue));
 }
 
 intptr_t mlirOperationGetNumResults(MlirOperation op) {
@@ -302,22 +456,21 @@ intptr_t mlirOperationGetNumAttributes(MlirOperation op) {
 
 MlirNamedAttribute mlirOperationGetAttribute(MlirOperation op, intptr_t pos) {
   NamedAttribute attr = unwrap(op)->getAttrs()[pos];
-  return MlirNamedAttribute{attr.first.c_str(), wrap(attr.second)};
+  return MlirNamedAttribute{wrap(attr.getName()), wrap(attr.getValue())};
 }
 
 MlirAttribute mlirOperationGetAttributeByName(MlirOperation op,
-                                              const char *name) {
-  return wrap(unwrap(op)->getAttr(name));
+                                              MlirStringRef name) {
+  return wrap(unwrap(op)->getAttr(unwrap(name)));
 }
 
-void mlirOperationSetAttributeByName(MlirOperation op, const char *name,
+void mlirOperationSetAttributeByName(MlirOperation op, MlirStringRef name,
                                      MlirAttribute attr) {
-  unwrap(op)->setAttr(name, unwrap(attr));
+  unwrap(op)->setAttr(unwrap(name), unwrap(attr));
 }
 
-int mlirOperationRemoveAttributeByName(MlirOperation op, const char *name) {
-  auto removeResult = unwrap(op)->removeAttr(name);
-  return removeResult == MutableDictionaryAttr::RemoveResult::Removed;
+bool mlirOperationRemoveAttributeByName(MlirOperation op, MlirStringRef name) {
+  return !!unwrap(op)->removeAttr(unwrap(name));
 }
 
 void mlirOperationPrint(MlirOperation op, MlirStringCallback callback,
@@ -332,13 +485,35 @@ void mlirOperationPrintWithFlags(MlirOperation op, MlirOpPrintingFlags flags,
   unwrap(op)->print(stream, *unwrap(flags));
 }
 
+void mlirOperationWriteBytecode(MlirOperation op, MlirStringCallback callback,
+                                void *userData) {
+  detail::CallbackOstream stream(callback, userData);
+  writeBytecodeToFile(unwrap(op), stream);
+}
+
 void mlirOperationDump(MlirOperation op) { return unwrap(op)->dump(); }
+
+bool mlirOperationVerify(MlirOperation op) {
+  return succeeded(verify(unwrap(op)));
+}
+
+void mlirOperationMoveAfter(MlirOperation op, MlirOperation other) {
+  return unwrap(op)->moveAfter(unwrap(other));
+}
+
+void mlirOperationMoveBefore(MlirOperation op, MlirOperation other) {
+  return unwrap(op)->moveBefore(unwrap(other));
+}
 
 //===----------------------------------------------------------------------===//
 // Region API.
 //===----------------------------------------------------------------------===//
 
 MlirRegion mlirRegionCreate() { return wrap(new Region); }
+
+bool mlirRegionEqual(MlirRegion region, MlirRegion other) {
+  return unwrap(region) == unwrap(other);
+}
 
 MlirBlock mlirRegionGetFirstBlock(MlirRegion region) {
   Region *cppRegion = unwrap(region);
@@ -390,15 +565,24 @@ void mlirRegionDestroy(MlirRegion region) {
 // Block API.
 //===----------------------------------------------------------------------===//
 
-MlirBlock mlirBlockCreate(intptr_t nArgs, MlirType *args) {
+MlirBlock mlirBlockCreate(intptr_t nArgs, MlirType const *args,
+                          MlirLocation const *locs) {
   Block *b = new Block;
   for (intptr_t i = 0; i < nArgs; ++i)
-    b->addArgument(unwrap(args[i]));
+    b->addArgument(unwrap(args[i]), unwrap(locs[i]));
   return wrap(b);
 }
 
-int mlirBlockEqual(MlirBlock block, MlirBlock other) {
+bool mlirBlockEqual(MlirBlock block, MlirBlock other) {
   return unwrap(block) == unwrap(other);
+}
+
+MlirOperation mlirBlockGetParentOperation(MlirBlock block) {
+  return wrap(unwrap(block)->getParentOp());
+}
+
+MlirRegion mlirBlockGetParentRegion(MlirBlock block) {
+  return wrap(unwrap(block)->getParent());
 }
 
 MlirBlock mlirBlockGetNextInRegion(MlirBlock block) {
@@ -417,7 +601,7 @@ MlirOperation mlirBlockGetTerminator(MlirBlock block) {
   if (cppBlock->empty())
     return wrap(static_cast<Operation *>(nullptr));
   Operation &back = cppBlock->back();
-  if (!back.isKnownTerminator())
+  if (!back.hasTrait<OpTrait::IsTerminator>())
     return wrap(static_cast<Operation *>(nullptr));
   return wrap(&back);
 }
@@ -461,8 +645,18 @@ void mlirBlockInsertOwnedOperationBefore(MlirBlock block,
 
 void mlirBlockDestroy(MlirBlock block) { delete unwrap(block); }
 
+void mlirBlockDetach(MlirBlock block) {
+  Block *b = unwrap(block);
+  b->getParent()->getBlocks().remove(b);
+}
+
 intptr_t mlirBlockGetNumArguments(MlirBlock block) {
   return static_cast<intptr_t>(unwrap(block)->getNumArguments());
+}
+
+MlirValue mlirBlockAddArgument(MlirBlock block, MlirType type,
+                               MlirLocation loc) {
+  return wrap(unwrap(block)->addArgument(unwrap(type), unwrap(loc)));
 }
 
 MlirValue mlirBlockGetArgument(MlirBlock block, intptr_t pos) {
@@ -479,11 +673,15 @@ void mlirBlockPrint(MlirBlock block, MlirStringCallback callback,
 // Value API.
 //===----------------------------------------------------------------------===//
 
-int mlirValueIsABlockArgument(MlirValue value) {
+bool mlirValueEqual(MlirValue value1, MlirValue value2) {
+  return unwrap(value1) == unwrap(value2);
+}
+
+bool mlirValueIsABlockArgument(MlirValue value) {
   return unwrap(value).isa<BlockArgument>();
 }
 
-int mlirValueIsAOpResult(MlirValue value) {
+bool mlirValueIsAOpResult(MlirValue value) {
   return unwrap(value).isa<OpResult>();
 }
 
@@ -525,15 +723,21 @@ void mlirValuePrint(MlirValue value, MlirStringCallback callback,
 // Type API.
 //===----------------------------------------------------------------------===//
 
-MlirType mlirTypeParseGet(MlirContext context, const char *type) {
-  return wrap(mlir::parseType(type, unwrap(context)));
+MlirType mlirTypeParseGet(MlirContext context, MlirStringRef type) {
+  return wrap(mlir::parseType(unwrap(type), unwrap(context)));
 }
 
 MlirContext mlirTypeGetContext(MlirType type) {
   return wrap(unwrap(type).getContext());
 }
 
-int mlirTypeEqual(MlirType t1, MlirType t2) { return unwrap(t1) == unwrap(t2); }
+MlirTypeID mlirTypeGetTypeID(MlirType type) {
+  return wrap(unwrap(type).getTypeID());
+}
+
+bool mlirTypeEqual(MlirType t1, MlirType t2) {
+  return unwrap(t1) == unwrap(t2);
+}
 
 void mlirTypePrint(MlirType type, MlirStringCallback callback, void *userData) {
   detail::CallbackOstream stream(callback, userData);
@@ -546,8 +750,8 @@ void mlirTypeDump(MlirType type) { unwrap(type).dump(); }
 // Attribute API.
 //===----------------------------------------------------------------------===//
 
-MlirAttribute mlirAttributeParseGet(MlirContext context, const char *attr) {
-  return wrap(mlir::parseAttribute(attr, unwrap(context)));
+MlirAttribute mlirAttributeParseGet(MlirContext context, MlirStringRef attr) {
+  return wrap(mlir::parseAttribute(unwrap(attr), unwrap(context)));
 }
 
 MlirContext mlirAttributeGetContext(MlirAttribute attribute) {
@@ -555,10 +759,17 @@ MlirContext mlirAttributeGetContext(MlirAttribute attribute) {
 }
 
 MlirType mlirAttributeGetType(MlirAttribute attribute) {
-  return wrap(unwrap(attribute).getType());
+  Attribute attr = unwrap(attribute);
+  if (auto typedAttr = attr.dyn_cast<TypedAttr>())
+    return wrap(typedAttr.getType());
+  return wrap(NoneType::get(attr.getContext()));
 }
 
-int mlirAttributeEqual(MlirAttribute a1, MlirAttribute a2) {
+MlirTypeID mlirAttributeGetTypeID(MlirAttribute attr) {
+  return wrap(unwrap(attr).getTypeID());
+}
+
+bool mlirAttributeEqual(MlirAttribute a1, MlirAttribute a2) {
   return unwrap(a1) == unwrap(a2);
 }
 
@@ -570,7 +781,8 @@ void mlirAttributePrint(MlirAttribute attr, MlirStringCallback callback,
 
 void mlirAttributeDump(MlirAttribute attr) { unwrap(attr).dump(); }
 
-MlirNamedAttribute mlirNamedAttributeGet(const char *name, MlirAttribute attr) {
+MlirNamedAttribute mlirNamedAttributeGet(MlirIdentifier name,
+                                         MlirAttribute attr) {
   return MlirNamedAttribute{name, attr};
 }
 
@@ -579,13 +791,76 @@ MlirNamedAttribute mlirNamedAttributeGet(const char *name, MlirAttribute attr) {
 //===----------------------------------------------------------------------===//
 
 MlirIdentifier mlirIdentifierGet(MlirContext context, MlirStringRef str) {
-  return wrap(Identifier::get(unwrap(str), unwrap(context)));
+  return wrap(StringAttr::get(unwrap(context), unwrap(str)));
 }
 
-int mlirIdentifierEqual(MlirIdentifier ident, MlirIdentifier other) {
+MlirContext mlirIdentifierGetContext(MlirIdentifier ident) {
+  return wrap(unwrap(ident).getContext());
+}
+
+bool mlirIdentifierEqual(MlirIdentifier ident, MlirIdentifier other) {
   return unwrap(ident) == unwrap(other);
 }
 
 MlirStringRef mlirIdentifierStr(MlirIdentifier ident) {
   return wrap(unwrap(ident).strref());
+}
+
+//===----------------------------------------------------------------------===//
+// Symbol and SymbolTable API.
+//===----------------------------------------------------------------------===//
+
+MlirStringRef mlirSymbolTableGetSymbolAttributeName() {
+  return wrap(SymbolTable::getSymbolAttrName());
+}
+
+MlirStringRef mlirSymbolTableGetVisibilityAttributeName() {
+  return wrap(SymbolTable::getVisibilityAttrName());
+}
+
+MlirSymbolTable mlirSymbolTableCreate(MlirOperation operation) {
+  if (!unwrap(operation)->hasTrait<OpTrait::SymbolTable>())
+    return wrap(static_cast<SymbolTable *>(nullptr));
+  return wrap(new SymbolTable(unwrap(operation)));
+}
+
+void mlirSymbolTableDestroy(MlirSymbolTable symbolTable) {
+  delete unwrap(symbolTable);
+}
+
+MlirOperation mlirSymbolTableLookup(MlirSymbolTable symbolTable,
+                                    MlirStringRef name) {
+  return wrap(unwrap(symbolTable)->lookup(StringRef(name.data, name.length)));
+}
+
+MlirAttribute mlirSymbolTableInsert(MlirSymbolTable symbolTable,
+                                    MlirOperation operation) {
+  return wrap((Attribute)unwrap(symbolTable)->insert(unwrap(operation)));
+}
+
+void mlirSymbolTableErase(MlirSymbolTable symbolTable,
+                          MlirOperation operation) {
+  unwrap(symbolTable)->erase(unwrap(operation));
+}
+
+MlirLogicalResult mlirSymbolTableReplaceAllSymbolUses(MlirStringRef oldSymbol,
+                                                      MlirStringRef newSymbol,
+                                                      MlirOperation from) {
+  auto *cppFrom = unwrap(from);
+  auto *context = cppFrom->getContext();
+  auto oldSymbolAttr = StringAttr::get(context, unwrap(oldSymbol));
+  auto newSymbolAttr = StringAttr::get(context, unwrap(newSymbol));
+  return wrap(SymbolTable::replaceAllSymbolUses(oldSymbolAttr, newSymbolAttr,
+                                                unwrap(from)));
+}
+
+void mlirSymbolTableWalkSymbolTables(MlirOperation from, bool allSymUsesVisible,
+                                     void (*callback)(MlirOperation, bool,
+                                                      void *userData),
+                                     void *userData) {
+  SymbolTable::walkSymbolTables(unwrap(from), allSymUsesVisible,
+                                [&](Operation *foundOpCpp, bool isVisible) {
+                                  callback(wrap(foundOpCpp), isVisible,
+                                           userData);
+                                });
 }

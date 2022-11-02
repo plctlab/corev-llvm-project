@@ -235,16 +235,6 @@ public:
     Relocations[Sec].push_back(P);
   }
 
-  void recordScatteredRelocation(const MCAssembler &Asm,
-                                 const MCAsmLayout &Layout,
-                                 const MCFragment *Fragment,
-                                 const MCFixup &Fixup, MCValue Target,
-                                 unsigned Log2Size, uint64_t &FixedValue);
-
-  void recordTLVPRelocation(const MCAssembler &Asm, const MCAsmLayout &Layout,
-                            const MCFragment *Fragment, const MCFixup &Fixup,
-                            MCValue Target, uint64_t &FixedValue);
-
   void recordRelocation(MCAssembler &Asm, const MCAsmLayout &Layout,
                         const MCFragment *Fragment, const MCFixup &Fixup,
                         MCValue Target, uint64_t &FixedValue) override;
@@ -272,6 +262,8 @@ public:
                                               const MCSymbol &SymA,
                                               const MCFragment &FB, bool InSet,
                                               bool IsPCRel) const override;
+
+  void populateAddrSigSection(MCAssembler &Asm);
 
   uint64_t writeObject(MCAssembler &Asm, const MCAsmLayout &Layout) override;
 };

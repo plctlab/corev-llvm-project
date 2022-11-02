@@ -25,7 +25,6 @@
 #define LLVM_SUPPORT_PROCESS_H
 
 #include "llvm/ADT/Optional.h"
-#include "llvm/Support/AllocatorBase.h"
 #include "llvm/Support/Chrono.h"
 #include "llvm/Support/DataTypes.h"
 #include "llvm/Support/Error.h"
@@ -213,8 +212,11 @@ public:
   /// Equivalent to ::exit(), except when running inside a CrashRecoveryContext.
   /// In that case, the control flow will resume after RunSafely(), like for a
   /// crash, rather than exiting the current process.
-  LLVM_ATTRIBUTE_NORETURN
-  static void Exit(int RetCode);
+  /// Use \arg NoCleanup for calling _exit() instead of exit().
+  [[noreturn]] static void Exit(int RetCode, bool NoCleanup = false);
+
+private:
+  [[noreturn]] static void ExitNoCleanup(int RetCode);
 };
 
 }

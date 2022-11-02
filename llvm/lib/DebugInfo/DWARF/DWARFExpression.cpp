@@ -174,7 +174,10 @@ bool DWARFExpression::Operation::extract(DataExtractor Data,
     case Operation::WasmLocationArg:
       assert(Operand == 1);
       switch (Operands[0]) {
-      case 0: case 1: case 2:
+      case 0:
+      case 1:
+      case 2:
+      case 4:
         Operands[Operand] = Data.getULEB128(&Offset);
         break;
       case 3: // global as uint32
@@ -204,7 +207,8 @@ bool DWARFExpression::Operation::extract(DataExtractor Data,
 }
 
 static void prettyPrintBaseTypeRef(DWARFUnit *U, raw_ostream &OS,
-                                   DIDumpOptions DumpOpts, uint64_t Operands[2],
+                                   DIDumpOptions DumpOpts,
+                                   const uint64_t Operands[2],
                                    unsigned Operand) {
   assert(Operand < 2 && "operand out of bounds");
   auto Die = U->getDIEForOffset(U->getOffset() + Operands[Operand]);
@@ -213,18 +217,17 @@ static void prettyPrintBaseTypeRef(DWARFUnit *U, raw_ostream &OS,
     if (DumpOpts.Verbose)
       OS << format("0x%08" PRIx64 " -> ", Operands[Operand]);
     OS << format("0x%08" PRIx64 ")", U->getOffset() + Operands[Operand]);
-    if (auto Name = Die.find(dwarf::DW_AT_name))
-      OS << " \"" << Name->getAsCString() << "\"";
+    if (auto Name = dwarf::toString(Die.find(dwarf::DW_AT_name)))
+      OS << " \"" << *Name << "\"";
   } else {
     OS << format(" <invalid base_type ref: 0x%" PRIx64 ">",
                  Operands[Operand]);
   }
 }
 
-static bool prettyPrintRegisterOp(DWARFUnit *U, raw_ostream &OS,
-                                  DIDumpOptions DumpOpts, uint8_t Opcode,
-                                  uint64_t Operands[2],
-                                  const MCRegisterInfo *MRI, bool isEH) {
+bool DWARFExpression::prettyPrintRegisterOp(
+    DWARFUnit *U, raw_ostream &OS, DIDumpOptions DumpOpts, uint8_t Opcode,
+    const uint64_t Operands[2], const MCRegisterInfo *MRI, bool isEH) {
   if (!MRI)
     return false;
 
@@ -259,7 +262,7 @@ static bool prettyPrintRegisterOp(DWARFUnit *U, raw_ostream &OS,
 bool DWARFExpression::Operation::print(raw_ostream &OS, DIDumpOptions DumpOpts,
                                        const DWARFExpression *Expr,
                                        const MCRegisterInfo *RegInfo,
-                                       DWARFUnit *U, bool isEH) {
+                                       DWARFUnit *U, bool isEH) const {
   if (Error) {
     OS << "<decoding error>";
     return false;
@@ -294,8 +297,11 @@ bool DWARFExpression::Operation::print(raw_ostream &OS, DIDumpOptions DumpOpts,
     } else if (Size == Operation::WasmLocationArg) {
       assert(Operand == 1);
       switch (Operands[0]) {
-      case 0: case 1: case 2:
+      case 0:
+      case 1:
+      case 2:
       case 3: // global as uint32
+      case 4:
         OS << format(" 0x%" PRIx64, Operands[Operand]);
         break;
       default: assert(false);
@@ -319,6 +325,10 @@ void DWARFExpression::print(raw_ostream &OS, DIDumpOptions DumpOpts,
                             const MCRegisterInfo *RegInfo, DWARFUnit *U,
                             bool IsEH) const {
   uint32_t EntryValExprSize = 0;
+  uint64_t EntryValStartOffset = 0;
+  if (Data.getData().empty())
+    OS << "<empty>";
+
   for (auto &Op : *this) {
     if (!Op.print(OS, DumpOpts, this, RegInfo, U, IsEH)) {
       uint64_t FailOffset = Op.getEndOffset();
@@ -331,11 +341,12 @@ void DWARFExpression::print(raw_ostream &OS, DIDumpOptions DumpOpts,
         Op.getCode() == DW_OP_GNU_entry_value) {
       OS << "(";
       EntryValExprSize = Op.getRawOperand(0);
+      EntryValStartOffset = Op.getEndOffset();
       continue;
     }
 
     if (EntryValExprSize) {
-      EntryValExprSize--;
+      EntryValExprSize -= Op.getEndOffset() - EntryValStartOffset;
       if (EntryValExprSize == 0)
         OS << ")";
     }
@@ -345,10 +356,9 @@ void DWARFExpression::print(raw_ostream &OS, DIDumpOptions DumpOpts,
   }
 }
 
-bool DWARFExpression::Operation::verify(DWARFUnit *U) {
-
+bool DWARFExpression::Operation::verify(const Operation &Op, DWARFUnit *U) {
   for (unsigned Operand = 0; Operand < 2; ++Operand) {
-    unsigned Size = Desc.Op[Operand];
+    unsigned Size = Op.Desc.Op[Operand];
 
     if (Size == Operation::SizeNA)
       break;
@@ -358,13 +368,11 @@ bool DWARFExpression::Operation::verify(DWARFUnit *U) {
       // the generic type should be done, so don't look up a base type in that
       // case. The same holds for DW_OP_reinterpret, which is currently not
       // supported.
-      if (Opcode == DW_OP_convert && Operands[Operand] == 0)
+      if (Op.Opcode == DW_OP_convert && Op.Operands[Operand] == 0)
         continue;
-      auto Die = U->getDIEForOffset(U->getOffset() + Operands[Operand]);
-      if (!Die || Die.getTag() != dwarf::DW_TAG_base_type) {
-        Error = true;
+      auto Die = U->getDIEForOffset(U->getOffset() + Op.Operands[Operand]);
+      if (!Die || Die.getTag() != dwarf::DW_TAG_base_type)
         return false;
-      }
     }
   }
 
@@ -373,7 +381,7 @@ bool DWARFExpression::Operation::verify(DWARFUnit *U) {
 
 bool DWARFExpression::verify(DWARFUnit *U) {
   for (auto &Op : *this)
-    if (!Op.verify(U))
+    if (!Operation::verify(Op, U))
       return false;
 
   return true;
@@ -399,7 +407,7 @@ static bool printCompactDWARFExpr(raw_ostream &OS, DWARFExpression::iterator I,
   SmallVector<PrintedExpr, 4> Stack;
 
   while (I != E) {
-    DWARFExpression::Operation &Op = *I;
+    const DWARFExpression::Operation &Op = *I;
     uint8_t Opcode = Op.getCode();
     switch (Opcode) {
     case dwarf::DW_OP_regx: {
@@ -499,6 +507,12 @@ static bool printCompactDWARFExpr(raw_ostream &OS, DWARFExpression::iterator I,
 
 bool DWARFExpression::printCompact(raw_ostream &OS, const MCRegisterInfo &MRI) {
   return printCompactDWARFExpr(OS, begin(), end(), MRI);
+}
+
+bool DWARFExpression::operator==(const DWARFExpression &RHS) const {
+  if (AddressSize != RHS.AddressSize || Format != RHS.Format)
+    return false;
+  return Data.getData() == RHS.Data.getData();
 }
 
 } // namespace llvm

@@ -33,12 +33,26 @@ struct RISCVRegisterInfo : public RISCVGenRegisterInfo {
   bool isAsmClobberable(const MachineFunction &MF,
                         MCRegister PhysReg) const override;
 
-  bool isConstantPhysReg(MCRegister PhysReg) const override;
-
   const uint32_t *getNoPreservedMask() const override;
 
   bool hasReservedSpillSlot(const MachineFunction &MF, Register Reg,
                             int &FrameIdx) const override;
+
+  bool requiresVirtualBaseRegisters(const MachineFunction &MF) const override;
+
+  bool needsFrameBaseReg(MachineInstr *MI, int64_t Offset) const override;
+
+  bool isFrameOffsetLegal(const MachineInstr *MI, Register BaseReg,
+                          int64_t Offset) const override;
+
+  Register materializeFrameBaseRegister(MachineBasicBlock *MBB, int FrameIdx,
+                                        int64_t Offset) const override;
+
+  void resolveFrameIndex(MachineInstr &MI, Register BaseReg,
+                         int64_t Offset) const override;
+
+  int64_t getFrameIndexInstrOffset(const MachineInstr *MI,
+                                   int Idx) const override;
 
   void eliminateFrameIndex(MachineBasicBlock::iterator MI, int SPAdj,
                            unsigned FIOperandNum,
@@ -59,6 +73,15 @@ struct RISCVRegisterInfo : public RISCVGenRegisterInfo {
                      unsigned Kind = 0) const override {
     return &RISCV::GPRRegClass;
   }
+
+  const TargetRegisterClass *
+  getLargestLegalSuperClass(const TargetRegisterClass *RC,
+                            const MachineFunction &) const override;
+
+  void getOffsetOpcodes(const StackOffset &Offset,
+                        SmallVectorImpl<uint64_t> &Ops) const override;
+
+  unsigned getRegisterCostTableIndex(const MachineFunction &MF) const override;
 };
 }
 

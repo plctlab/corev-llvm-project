@@ -867,14 +867,12 @@ __mmask8 test_mm_movepi32_mask(__m128i __A) {
   // CHECK-LABEL: @test_mm_movepi32_mask
   // CHECK: [[CMP:%.*]] = icmp slt <4 x i32> %{{.*}}, zeroinitializer
   // CHECK: [[SHUF:%.*]] = shufflevector <4 x i1> [[CMP]], <4 x i1> zeroinitializer, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7>
-  // CHECK: bitcast <8 x i1> [[SHUF]] to i8
   return _mm_movepi32_mask(__A); 
 }
 
 __mmask8 test_mm256_movepi32_mask(__m256i __A) {
   // CHECK-LABEL: @test_mm256_movepi32_mask
   // CHECK: [[CMP:%.*]] = icmp slt <8 x i32> %{{.*}}, zeroinitializer
-  // CHECK: bitcast <8 x i1> [[CMP]] to i8
   return _mm256_movepi32_mask(__A); 
 }
 
@@ -913,7 +911,6 @@ __mmask8 test_mm_movepi64_mask(__m128i __A) {
   // CHECK-LABEL: @test_mm_movepi64_mask
   // CHECK: [[CMP:%.*]] = icmp slt <2 x i64> %{{.*}}, zeroinitializer
   // CHECK: [[SHUF:%.*]] = shufflevector <2 x i1> [[CMP]], <2 x i1> zeroinitializer, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 2, i32 3, i32 2, i32 3>
-  // CHECK: bitcast <8 x i1> [[SHUF]] to i8
   return _mm_movepi64_mask(__A); 
 }
 
@@ -921,7 +918,6 @@ __mmask8 test_mm256_movepi64_mask(__m256i __A) {
   // CHECK-LABEL: @test_mm256_movepi64_mask
   // CHECK: [[CMP:%.*]] = icmp slt <4 x i64> %{{.*}}, zeroinitializer
   // CHECK: [[SHUF:%.*]] = shufflevector <4 x i1> [[CMP]], <4 x i1> zeroinitializer, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7>
-  // CHECK: bitcast <8 x i1> [[SHUF]] to i8
   return _mm256_movepi64_mask(__A); 
 }
 
@@ -1028,40 +1024,40 @@ __m256i test_mm256_maskz_broadcast_i64x2(__mmask8 __M, __m128i const* __A) {
 
 __m128d test_mm256_extractf64x2_pd(__m256d __A) {
   // CHECK-LABEL: @test_mm256_extractf64x2_pd
-  // CHECK: shufflevector <4 x double> %{{.*}}, <4 x double> undef, <2 x i32> <i32 2, i32 3>
+  // CHECK: shufflevector <4 x double> %{{.*}}, <4 x double> poison, <2 x i32> <i32 2, i32 3>
   return _mm256_extractf64x2_pd(__A, 1); 
 }
 
 __m128d test_mm256_mask_extractf64x2_pd(__m128d __W, __mmask8 __U, __m256d __A) {
   // CHECK-LABEL: @test_mm256_mask_extractf64x2_pd
-  // CHECK: shufflevector <4 x double> %{{.*}}, <4 x double> undef, <2 x i32> <i32 2, i32 3>
+  // CHECK: shufflevector <4 x double> %{{.*}}, <4 x double> poison, <2 x i32> <i32 2, i32 3>
   // CHECK: select <2 x i1> %{{.*}}, <2 x double> %{{.*}}, <2 x double> %{{.*}}
   return _mm256_mask_extractf64x2_pd(__W, __U, __A, 1); 
 }
 
 __m128d test_mm256_maskz_extractf64x2_pd(__mmask8 __U, __m256d __A) {
   // CHECK-LABEL: @test_mm256_maskz_extractf64x2_pd
-  // CHECK: shufflevector <4 x double> %{{.*}}, <4 x double> undef, <2 x i32> <i32 2, i32 3>
+  // CHECK: shufflevector <4 x double> %{{.*}}, <4 x double> poison, <2 x i32> <i32 2, i32 3>
   // CHECK: select <2 x i1> %{{.*}}, <2 x double> %{{.*}}, <2 x double> %{{.*}}
   return _mm256_maskz_extractf64x2_pd(__U, __A, 1); 
 }
 
 __m128i test_mm256_extracti64x2_epi64(__m256i __A) {
   // CHECK-LABEL: @test_mm256_extracti64x2_epi64
-  // CHECK: shufflevector <4 x i64> %{{.*}}, <4 x i64> undef, <2 x i32> <i32 2, i32 3>
+  // CHECK: shufflevector <4 x i64> %{{.*}}, <4 x i64> poison, <2 x i32> <i32 2, i32 3>
   return _mm256_extracti64x2_epi64(__A, 1); 
 }
 
 __m128i test_mm256_mask_extracti64x2_epi64(__m128i __W, __mmask8 __U, __m256i __A) {
   // CHECK-LABEL: @test_mm256_mask_extracti64x2_epi64
-  // CHECK: shufflevector <4 x i64> %{{.*}}, <4 x i64> undef, <2 x i32> <i32 2, i32 3>
+  // CHECK: shufflevector <4 x i64> %{{.*}}, <4 x i64> poison, <2 x i32> <i32 2, i32 3>
   // CHECK: select <2 x i1> %{{.*}}, <2 x i64> %{{.*}}, <2 x i64> %{{.*}}
   return _mm256_mask_extracti64x2_epi64(__W, __U, __A, 1); 
 }
 
 __m128i test_mm256_maskz_extracti64x2_epi64(__mmask8 __U, __m256i __A) {
   // CHECK-LABEL: @test_mm256_maskz_extracti64x2_epi64
-  // CHECK: shufflevector <4 x i64> %{{.*}}, <4 x i64> undef, <2 x i32> <i32 2, i32 3>
+  // CHECK: shufflevector <4 x i64> %{{.*}}, <4 x i64> poison, <2 x i32> <i32 2, i32 3>
   // CHECK: select <2 x i1> %{{.*}}, <2 x i64> %{{.*}}, <2 x i64> %{{.*}}
   return _mm256_maskz_extracti64x2_epi64(__U, __A, 1); 
 }

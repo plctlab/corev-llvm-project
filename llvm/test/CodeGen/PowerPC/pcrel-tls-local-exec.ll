@@ -8,10 +8,10 @@
 ; These test cases are to ensure that when using pc relative memory operations
 ; ABI correct code and relocations are produced for the Local Exec TLS Model.
 
-@x = thread_local global i32 0, align 4
-@y = thread_local global [5 x i32] [i32 0, i32 0, i32 0, i32 0, i32 0], align 4
+@x = dso_local thread_local global i32 0, align 4
+@y = dso_local thread_local global [5 x i32] [i32 0, i32 0, i32 0, i32 0, i32 0], align 4
 
-define i32* @LocalExecAddressLoad() {
+define dso_local ptr @LocalExecAddressLoad() {
 ; CHECK-S-LABEL: LocalExecAddressLoad:
 ; CHECK-S:       # %bb.0: # %entry
 ; CHECK-S-NEXT:    paddi r3, r13, x@TPREL, 0
@@ -21,10 +21,10 @@ define i32* @LocalExecAddressLoad() {
 ; CHECK-O-NEXT:    0000000000000000:  R_PPC64_TPREL34 x
 ; CHECK-O-NEXT:    8: blr
 entry:
-  ret i32* @x
+  ret ptr @x
 }
 
-define i32 @LocalExecValueLoad() {
+define dso_local i32 @LocalExecValueLoad() {
 ; CHECK-S-LABEL: LocalExecValueLoad:
 ; CHECK-S:       # %bb.0: # %entry
 ; CHECK-S-NEXT:    paddi r3, r13, x@TPREL, 0
@@ -36,11 +36,11 @@ define i32 @LocalExecValueLoad() {
 ; CHECK-O-NEXT:    28: lwz 3, 0(3)
 ; CHECK-O-NEXT:    2c: blr
 entry:
-  %0 = load i32, i32* @x, align 4
+  %0 = load i32, ptr @x, align 4
   ret i32 %0
 }
 
-define void @LocalExecValueStore(i32 %in) {
+define dso_local void @LocalExecValueStore(i32 %in) {
 ; CHECK-S-LABEL: LocalExecValueStore:
 ; CHECK-S:       # %bb.0: # %entry
 ; CHECK-S-NEXT:    paddi r4, r13, x@TPREL, 0
@@ -52,11 +52,11 @@ define void @LocalExecValueStore(i32 %in) {
 ; CHECK-O-NEXT:    48: stw 3, 0(4)
 ; CHECK-O-NEXT:    4c: blr
 entry:
-  store i32 %in, i32* @x, align 4
+  store i32 %in, ptr @x, align 4
   ret void
 }
 
-define i32 @LocalExecValueLoadOffset() {
+define dso_local i32 @LocalExecValueLoadOffset() {
 ; CHECK-S-LABEL: LocalExecValueLoadOffset:
 ; CHECK-S:       # %bb.0: # %entry
 ; CHECK-S-NEXT:    paddi r3, r13, y@TPREL, 0
@@ -68,12 +68,12 @@ define i32 @LocalExecValueLoadOffset() {
 ; CHECK-O-NEXT:    68: lwz 3, 12(3)
 ; CHECK-O-NEXT:    6c: blr
 entry:
-  %0 = load i32, i32* getelementptr inbounds ([5 x i32], [5 x i32]* @y, i64 0, i64 3), align 4
+  %0 = load i32, ptr getelementptr inbounds ([5 x i32], ptr @y, i64 0, i64 3), align 4
   ret i32 %0
 }
 
 
-define i32* @LocalExecValueLoadOffsetNoLoad() {
+define dso_local ptr @LocalExecValueLoadOffsetNoLoad() {
 ; CHECK-S-LABEL: LocalExecValueLoadOffsetNoLoad:
 ; CHECK-S:       # %bb.0: # %entry
 ; CHECK-S-NEXT:    paddi r3, r13, y@TPREL, 0
@@ -85,5 +85,5 @@ define i32* @LocalExecValueLoadOffsetNoLoad() {
 ; CHECK-O-NEXT:    88: addi 3, 3, 12
 ; CHECK-O-NEXT:    8c: blr
 entry:
-  ret i32* getelementptr inbounds ([5 x i32], [5 x i32]* @y, i64 0, i64 3)
+  ret ptr getelementptr inbounds ([5 x i32], ptr @y, i64 0, i64 3)
 }

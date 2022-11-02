@@ -1,16 +1,12 @@
-
 import gdbremote_testcase
 from lldbsuite.test.decorators import *
 from lldbsuite.test.lldbtest import *
 from lldbsuite.test import lldbutil
 
-
 supported_linux_archs = ["x86_64", "i386"]
-supported_oses = ["linux", "windows"]
+supported_oses = ["linux", "windows"]+lldbplatformutil.getDarwinOSTriples()
 
 class TestGdbRemoteMemoryAllocation(gdbremote_testcase.GdbRemoteTestCaseBase):
-
-    mydir = TestBase.compute_mydir(__file__)
 
     def allocate(self, size, permissions):
         self.test_sequence.add_log_lines(["read packet: $_M{:x},{}#00".format(size, permissions),
@@ -46,12 +42,11 @@ class TestGdbRemoteMemoryAllocation(gdbremote_testcase.GdbRemoteTestCaseBase):
 
     @skipIf(oslist=no_match(supported_oses))
     @skipIf(oslist=["linux"], archs=no_match(supported_linux_archs))
+    @expectedFailureDarwin(archs=["arm64", "arm64e"]) # Memory cannot be writable and executable
     @expectedFailureAll(oslist=["windows"]) # Memory allocated with incorrect permissions
-    @llgs_test
     def test_supported(self):
         """Make sure (de)allocation works on platforms where it's supposed to
         work"""
-        self.init_llgs_test()
         self.build()
         self.set_inferior_startup_launch()
         procs = self.prep_debug_monitor_and_inferior()
@@ -63,12 +58,10 @@ class TestGdbRemoteMemoryAllocation(gdbremote_testcase.GdbRemoteTestCaseBase):
 
     @skipIf(oslist=["linux"], archs=supported_linux_archs)
     @skipIf(oslist=supported_oses)
-    @llgs_test
     def test_unsupported(self):
         """Make sure we get an "unsupported" error on platforms where the
         feature is not implemented."""
 
-        self.init_llgs_test()
         self.build()
         self.set_inferior_startup_launch()
         procs = self.prep_debug_monitor_and_inferior()
@@ -79,11 +72,9 @@ class TestGdbRemoteMemoryAllocation(gdbremote_testcase.GdbRemoteTestCaseBase):
                                          True)
         self.expect_gdbremote_sequence()
 
-    @llgs_test
     def test_bad_packet(self):
         """Make sure we get a proper error for malformed packets."""
 
-        self.init_llgs_test()
         self.build()
         self.set_inferior_startup_launch()
         procs = self.prep_debug_monitor_and_inferior()

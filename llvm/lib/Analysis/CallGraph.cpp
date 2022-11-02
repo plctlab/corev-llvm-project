@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Analysis/CallGraph.h"
+#include "llvm/ADT/SCCIterator.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Config/llvm-config.h"
@@ -21,7 +22,6 @@
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
-#include <algorithm>
 #include <cassert>
 
 using namespace llvm;
@@ -70,8 +70,7 @@ bool CallGraph::invalidate(Module &, const PreservedAnalyses &PA,
   // Check whether the analysis, all analyses on functions, or the function's
   // CFG have been preserved.
   auto PAC = PA.getChecker<CallGraphAnalysis>();
-  return !(PAC.preserved() || PAC.preservedSet<AllAnalysesOn<Module>>() ||
-           PAC.preservedSet<CFGAnalyses>());
+  return !(PAC.preserved() || PAC.preservedSet<AllAnalysesOn<Module>>());
 }
 
 void CallGraph::addToCallGraph(Function *F) {
@@ -80,7 +79,9 @@ void CallGraph::addToCallGraph(Function *F) {
   // If this function has external linkage or has its address taken and
   // it is not a callback, then anything could call it.
   if (!F->hasLocalLinkage() ||
-      F->hasAddressTaken(nullptr, /*IgnoreCallbackUses=*/true))
+      F->hasAddressTaken(nullptr, /*IgnoreCallbackUses=*/true,
+                         /* IgnoreAssumeLikeCalls */ true,
+                         /* IgnoreLLVMUsed */ false))
     ExternalCallingNode->addCalledFunction(nullptr, Node);
 
   populateCallGraphNode(Node);
@@ -165,20 +166,6 @@ Function *CallGraph::removeFunctionFromModule(CallGraphNode *CGN) {
 
   M.getFunctionList().remove(F);
   return F;
-}
-
-/// spliceFunction - Replace the function represented by this node by another.
-/// This does not rescan the body of the function, so it is suitable when
-/// splicing the body of the old function to the new while also updating all
-/// callers from old to new.
-void CallGraph::spliceFunction(const Function *From, const Function *To) {
-  assert(FunctionMap.count(From) && "No CallGraphNode for function!");
-  assert(!FunctionMap.count(To) &&
-         "Pointing CallGraphNode at a function that already exists");
-  FunctionMapTy::iterator I = FunctionMap.find(From);
-  I->second->F = const_cast<Function*>(To);
-  FunctionMap[To] = std::move(I->second);
-  FunctionMap.erase(I);
 }
 
 // getOrInsertFunction - This method is identical to calling operator[], but
@@ -323,6 +310,34 @@ AnalysisKey CallGraphAnalysis::Key;
 PreservedAnalyses CallGraphPrinterPass::run(Module &M,
                                             ModuleAnalysisManager &AM) {
   AM.getResult<CallGraphAnalysis>(M).print(OS);
+  return PreservedAnalyses::all();
+}
+
+PreservedAnalyses CallGraphSCCsPrinterPass::run(Module &M,
+                                                ModuleAnalysisManager &AM) {
+  auto &CG = AM.getResult<CallGraphAnalysis>(M);
+  unsigned sccNum = 0;
+  OS << "SCCs for the program in PostOrder:";
+  for (scc_iterator<CallGraph *> SCCI = scc_begin(&CG); !SCCI.isAtEnd();
+       ++SCCI) {
+    const std::vector<CallGraphNode *> &nextSCC = *SCCI;
+    OS << "\nSCC #" << ++sccNum << ": ";
+    bool First = true;
+    for (std::vector<CallGraphNode *>::const_iterator I = nextSCC.begin(),
+                                                      E = nextSCC.end();
+         I != E; ++I) {
+      if (First)
+        First = false;
+      else
+        OS << ", ";
+      OS << ((*I)->getFunction() ? (*I)->getFunction()->getName()
+                                 : "external node");
+    }
+
+    if (nextSCC.size() == 1 && SCCI.hasCycle())
+      OS << " (Has self-loop).";
+  }
+  OS << "\n";
   return PreservedAnalyses::all();
 }
 

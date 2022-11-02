@@ -6,29 +6,18 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "__config"
+#include <__config>
+
 #ifndef _LIBCPP_HAS_NO_THREADS
 
-#include "thread"
-#include "exception"
-#include "vector"
-#include "future"
-#include "limits"
-
-#if __has_include(<sys/types.h>)
-# include <sys/types.h>
-#endif
-
-#if __has_include(<sys/param.h>)
-# include <sys/param.h>
-#endif
-
-#if __has_include(<sys/sysctl.h>)
-# include <sys/sysctl.h>
-#endif
+#include <exception>
+#include <future>
+#include <limits>
+#include <thread>
+#include <vector>
 
 #if __has_include(<unistd.h>)
-# include <unistd.h>
+# include <unistd.h> // for sysconf
 #endif
 
 #if defined(__NetBSD__)
@@ -82,15 +71,9 @@ thread::detach()
 }
 
 unsigned
-thread::hardware_concurrency() _NOEXCEPT
+thread::hardware_concurrency() noexcept
 {
-#if defined(CTL_HW) && defined(HW_NCPU)
-    unsigned n;
-    int mib[2] = {CTL_HW, HW_NCPU};
-    std::size_t s = sizeof(n);
-    sysctl(mib, 2, &n, &s, 0, 0);
-    return n;
-#elif defined(_SC_NPROCESSORS_ONLN)
+#if defined(_SC_NPROCESSORS_ONLN)
     long result = sysconf(_SC_NPROCESSORS_ONLN);
     // sysconf returns -1 if the name is invalid, the option does not exist or
     // does not have a definite limit.
@@ -112,7 +95,7 @@ thread::hardware_concurrency() _NOEXCEPT
 #       warning hardware_concurrency not yet implemented
 #   endif
     return 0;  // Means not computable [thread.thread.static]
-#endif  // defined(CTL_HW) && defined(HW_NCPU)
+#endif // defined(CTL_HW) && defined(HW_NCPU)
 }
 
 namespace this_thread
@@ -132,8 +115,13 @@ sleep_for(const chrono::nanoseconds& ns)
 __thread_specific_ptr<__thread_struct>&
 __thread_local_data()
 {
-    static __thread_specific_ptr<__thread_struct> __p;
-    return __p;
+  // Even though __thread_specific_ptr's destructor doesn't actually destroy
+  // anything (see comments there), we can't call it at all because threads may
+  // outlive the static variable and calling its destructor means accessing an
+  // object outside of its lifetime, which is UB.
+  alignas(__thread_specific_ptr<__thread_struct>) static char __b[sizeof(__thread_specific_ptr<__thread_struct>)];
+  static __thread_specific_ptr<__thread_struct>* __p = new (__b) __thread_specific_ptr<__thread_struct>();
+  return *__p;
 }
 
 // __thread_struct_imp

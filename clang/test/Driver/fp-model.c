@@ -1,7 +1,6 @@
 // Test that incompatible combinations of -ffp-model= options
 // and other floating point options get a warning diagnostic.
 //
-// REQUIRES: clang-driver
 
 // RUN: %clang -### -ffp-model=fast -ffp-contract=off -c %s 2>&1 \
 // RUN:   | FileCheck --check-prefix=WARN %s
@@ -80,7 +79,6 @@
 // RUN: %clang -### -ftrapping-math -c %s 2>&1 \
 // RUN:   | FileCheck --check-prefix=CHECK-TRAP %s
 // CHECK-TRAP: "-cc1"
-// CHECK-TRAP: "-ftrapping-math"
 // CHECK-TRAP: "-ffp-exception-behavior=strict"
 
 // RUN: %clang -### -nostdinc -ffp-model=fast -c %s 2>&1 \
@@ -88,7 +86,7 @@
 // CHECK-FPM-FAST: "-cc1"
 // CHECK-FPM-FAST: "-menable-no-infs"
 // CHECK-FPM-FAST: "-menable-no-nans"
-// CHECK-FPM-FAST: "-menable-unsafe-fp-math"
+// CHECK-FPM-FAST: "-funsafe-math-optimizations"
 // CHECK-FPM-FAST: "-fno-signed-zeros"
 // CHECK-FPM-FAST: "-mreassociate"
 // CHECK-FPM-FAST: "-freciprocal-math"
@@ -100,21 +98,14 @@
 // RUN: %clang -### -nostdinc -ffp-model=precise -c %s 2>&1 \
 // RUN:   | FileCheck --check-prefix=CHECK-FPM-PRECISE %s
 // CHECK-FPM-PRECISE: "-cc1"
-// CHECK-FPM-PRECISE: "-ffp-contract=fast"
+// CHECK-FPM-PRECISE: "-ffp-contract=on"
 // CHECK-FPM-PRECISE: "-fno-rounding-math"
 
 // RUN: %clang -### -nostdinc -ffp-model=strict -c %s 2>&1 \
 // RUN:   | FileCheck --check-prefix=CHECK-FPM-STRICT %s
 // CHECK-FPM-STRICT: "-cc1"
-// CHECK-FPM-STRICT: "-ftrapping-math"
 // CHECK-FPM-STRICT: "-frounding-math"
 // CHECK-FPM-STRICT: "-ffp-exception-behavior=strict"
-
-// RUN: %clang -### -nostdinc -ftrapping-math -ffp-exception-behavior=ignore -c %s 2>&1 \
-// RUN:   | FileCheck --check-prefix=CHECK-TRAP-IGNORE %s
-// CHECK-TRAP-IGNORE: "-cc1"
-// CHECK-TRAP-IGNORE: "-fno-rounding-math"
-// CHECK-TRAP-IGNORE: "-ffp-exception-behavior=ignore"
 
 
 // RUN: %clang -### -nostdinc -ffp-exception-behavior=strict -c %s 2>&1 \

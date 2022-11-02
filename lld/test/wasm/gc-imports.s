@@ -7,7 +7,8 @@
 .functype use_undef_global () -> (i64)
 
 foo:
-  .functype foo () -> ()
+  .functype foo (i64) -> (i64)
+  local.get 0
   call unused_undef_function
   end_function
 
@@ -16,7 +17,9 @@ foo:
 _start:
   .functype _start () -> ()
   call used_undef_function
+  drop
   call use_undef_global
+  drop
   end_function
 
 # RUN: obj2yaml %t1.wasm | FileCheck %s
@@ -42,6 +45,11 @@ _start:
 # CHECK-NEXT:         Name:            _start
 # CHECK-NEXT:       - Index:           2
 # CHECK-NEXT:         Name:            use_undef_global
+# CHECK-NEXT:     GlobalNames:
+# CHECK-NEXT:       - Index:           0
+# CHECK-NEXT:         Name:            used_undef_global
+# CHECK-NEXT:       - Index:           1
+# CHECK-NEXT:         Name:            __stack_pointer
 # CHECK-NEXT: ...
 
 # RUN: wasm-ld --no-gc-sections --allow-undefined \
@@ -84,4 +92,11 @@ _start:
 # NO-GC-NEXT:         Name:            _start
 # NO-GC-NEXT:       - Index:           5
 # NO-GC-NEXT:         Name:            use_undef_global
+# NO-GC-NEXT:     GlobalNames:
+# NO-GC-NEXT:       - Index:           0
+# NO-GC-NEXT:         Name:            unused_undef_global
+# NO-GC-NEXT:       - Index:           1
+# NO-GC-NEXT:         Name:            used_undef_global
+# NO-GC-NEXT:       - Index:           2
+# NO-GC-NEXT:         Name:            __stack_pointer
 # NO-GC-NEXT: ...

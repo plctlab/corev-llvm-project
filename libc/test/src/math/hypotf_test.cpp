@@ -6,56 +6,25 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "include/math.h"
+#include "HypotTest.h"
+#include "hypotf_hard_to_round.h"
+
 #include "src/math/hypotf.h"
-#include "utils/FPUtil/FPBits.h"
-#include "utils/FPUtil/TestHelpers.h"
-#include "utils/MPFRWrapper/MPFRUtils.h"
-#include "utils/UnitTest/Test.h"
 
-using FPBits = __llvm_libc::fputil::FPBits<float>;
-using UIntType = FPBits::UIntType;
+using LlvmLibcHypotfTest = HypotTestTemplate<float>;
 
-namespace mpfr = __llvm_libc::testing::mpfr;
-
-DECLARE_SPECIAL_CONSTANTS(float)
-
-TEST(HypotfTest, SpecialNumbers) {
-  EXPECT_FP_EQ(__llvm_libc::hypotf(inf, nan), inf);
-  EXPECT_FP_EQ(__llvm_libc::hypotf(nan, negInf), inf);
-  EXPECT_FP_EQ(__llvm_libc::hypotf(zero, inf), inf);
-  EXPECT_FP_EQ(__llvm_libc::hypotf(negInf, negZero), inf);
-
-  EXPECT_FP_EQ(__llvm_libc::hypotf(nan, nan), nan);
-  EXPECT_FP_EQ(__llvm_libc::hypotf(nan, zero), nan);
-  EXPECT_FP_EQ(__llvm_libc::hypotf(negZero, nan), nan);
-
-  EXPECT_FP_EQ(__llvm_libc::hypotf(negZero, zero), zero);
+TEST_F(LlvmLibcHypotfTest, SpecialNumbers) {
+  test_special_numbers(&__llvm_libc::hypotf);
 }
 
-TEST(HypotfTest, SubnormalRange) {
-  constexpr UIntType count = 1000001;
-  constexpr UIntType step =
-      (FPBits::maxSubnormal - FPBits::minSubnormal) / count;
-  for (UIntType v = FPBits::minSubnormal, w = FPBits::maxSubnormal;
-       v <= FPBits::maxSubnormal && w >= FPBits::minSubnormal;
-       v += step, w -= step) {
-    float x = FPBits(v), y = FPBits(w);
-    float result = __llvm_libc::hypotf(x, y);
-    mpfr::BinaryInput<float> input{x, y};
-    ASSERT_MPFR_MATCH(mpfr::Operation::Hypot, input, result, 0.5);
-  }
+TEST_F(LlvmLibcHypotfTest, SubnormalRange) {
+  test_subnormal_range(&__llvm_libc::hypotf);
 }
 
-TEST(HypotfTest, NormalRange) {
-  constexpr UIntType count = 1000001;
-  constexpr UIntType step = (FPBits::maxNormal - FPBits::minNormal) / count;
-  for (UIntType v = FPBits::minNormal, w = FPBits::maxNormal;
-       v <= FPBits::maxNormal && w >= FPBits::minNormal; v += step, w -= step) {
-    float x = FPBits(v), y = FPBits(w);
-    float result = __llvm_libc::hypotf(x, y);
-    ;
-    mpfr::BinaryInput<float> input{x, y};
-    ASSERT_MPFR_MATCH(mpfr::Operation::Hypot, input, result, 0.5);
-  }
+TEST_F(LlvmLibcHypotfTest, NormalRange) {
+  test_normal_range(&__llvm_libc::hypotf);
+}
+
+TEST_F(LlvmLibcHypotfTest, TrickyInputs) {
+  test_input_list(&__llvm_libc::hypotf, N_HARD_TO_ROUND, HYPOTF_HARD_TO_ROUND);
 }

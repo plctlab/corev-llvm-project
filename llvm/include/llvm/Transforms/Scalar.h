@@ -33,6 +33,12 @@ FunctionPass *createAlignmentFromAssumptionsPass();
 
 //===----------------------------------------------------------------------===//
 //
+// AnnotationRemarks - Emit remarks for !annotation metadata.
+//
+FunctionPass *createAnnotationRemarksLegacyPass();
+
+//===----------------------------------------------------------------------===//
+//
 // SCCP - Sparse conditional constant propagation.
 //
 FunctionPass *createSCCPPass();
@@ -127,7 +133,8 @@ Pass *createIndVarSimplifyPass();
 //
 Pass *createLICMPass();
 Pass *createLICMPass(unsigned LicmMssaOptCap,
-                     unsigned LicmMssaNoAccForPromotionCap);
+                     unsigned LicmMssaNoAccForPromotionCap,
+                     bool AllowSpeculation);
 
 //===----------------------------------------------------------------------===//
 //
@@ -153,7 +160,7 @@ Pass *createLoopInterchangePass();
 //
 // LoopFlatten - This pass flattens nested loops into a single loop.
 //
-Pass *createLoopFlattenPass();
+FunctionPass *createLoopFlattenPass();
 
 //===----------------------------------------------------------------------===//
 //
@@ -161,13 +168,6 @@ Pass *createLoopFlattenPass();
 // a loop's canonical induction variable as one of their indices.
 //
 Pass *createLoopStrengthReducePass();
-
-//===----------------------------------------------------------------------===//
-//
-// LoopUnswitch - This pass is a simple loop unswitching pass.
-//
-Pass *createLoopUnswitchPass(bool OptimizeForSize = false,
-                             bool hasBranchDivergence = false);
 
 //===----------------------------------------------------------------------===//
 //
@@ -184,7 +184,8 @@ Pass *createLoopUnrollPass(int OptLevel = 2, bool OnlyWhenForced = false,
                            int Count = -1, int AllowPartial = -1,
                            int Runtime = -1, int UpperBound = -1,
                            int AllowPeeling = -1);
-// Create an unrolling pass for full unrolling that uses exact trip count only.
+// Create an unrolling pass for full unrolling that uses exact trip count only
+// and also does peeling.
 Pass *createSimpleLoopUnrollPass(int OptLevel = 2, bool OnlyWhenForced = false,
                                  bool ForgetAllSCEV = false);
 
@@ -204,7 +205,7 @@ Pass *createLoopRerollPass();
 //
 // LoopRotate - This pass is a simple loop rotating pass.
 //
-Pass *createLoopRotatePass(int MaxHeaderSize = -1);
+Pass *createLoopRotatePass(int MaxHeaderSize = -1, bool PrepareForLTO = false);
 
 //===----------------------------------------------------------------------===//
 //
@@ -239,12 +240,18 @@ FunctionPass *createReassociatePass();
 //===----------------------------------------------------------------------===//
 //
 // JumpThreading - Thread control through mult-pred/multi-succ blocks where some
-// preds always go to some succ. If FreezeSelectCond is true, unfold the
-// condition of a select that unfolds to branch. Thresholds other than minus one
+// preds always go to some succ. Thresholds other than minus one
 // override the internal BB duplication default threshold.
 //
-FunctionPass *createJumpThreadingPass(bool FreezeSelectCond = false,
-                                      int Threshold = -1);
+FunctionPass *createJumpThreadingPass(int Threshold = -1);
+
+//===----------------------------------------------------------------------===//
+//
+// DFAJumpThreading - When a switch statement inside a loop is used to
+// implement a deterministic finite automata we can jump thread the switch
+// statement reducing number of conditional jumps.
+//
+FunctionPass *createDFAJumpThreadingPass();
 
 //===----------------------------------------------------------------------===//
 //
@@ -413,6 +420,12 @@ FunctionPass *createLowerExpectIntrinsicPass();
 
 //===----------------------------------------------------------------------===//
 //
+// TLSVariableHoist - This pass reduce duplicated TLS address call.
+//
+FunctionPass *createTLSVariableHoistPass();
+
+//===----------------------------------------------------------------------===//
+//
 // LowerConstantIntrinsicss - Expand any remaining llvm.objectsize and
 // llvm.is.constant intrinsic calls, even for the unknown cases.
 //
@@ -508,10 +521,6 @@ FunctionPass *createLoopVersioningPass();
 //
 FunctionPass *createLoopDataPrefetchPass();
 
-///===---------------------------------------------------------------------===//
-ModulePass *createNameAnonGlobalPass();
-ModulePass *createCanonicalizeAliasesPass();
-
 //===----------------------------------------------------------------------===//
 //
 // LibCallsShrinkWrap - Shrink-wraps a call to function if the result is not
@@ -539,6 +548,14 @@ Pass *createWarnMissedTransformationsPass();
 // instruction in a function.
 //
 FunctionPass *createInstSimplifyLegacyPass();
+
+
+//===----------------------------------------------------------------------===//
+//
+// createScalarizeMaskedMemIntrinPass - Replace masked load, store, gather
+// and scatter intrinsics with scalar code when target doesn't support them.
+//
+FunctionPass *createScalarizeMaskedMemIntrinLegacyPass();
 } // End llvm namespace
 
 #endif

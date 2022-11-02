@@ -135,15 +135,12 @@ class CommandLineArgumentParser {
 std::vector<std::string> unescapeCommandLine(JSONCommandLineSyntax Syntax,
                                              StringRef EscapedCommandLine) {
   if (Syntax == JSONCommandLineSyntax::AutoDetect) {
+#ifdef _WIN32
+    // Assume Windows command line parsing on Win32
+    Syntax = JSONCommandLineSyntax::Windows;
+#else
     Syntax = JSONCommandLineSyntax::Gnu;
-    llvm::Triple Triple(llvm::sys::getProcessTriple());
-    if (Triple.getOS() == llvm::Triple::OSType::Win32) {
-      // Assume Windows command line parsing on Win32 unless the triple
-      // explicitly tells us otherwise.
-      if (!Triple.hasEnvironment() ||
-          Triple.getEnvironment() == llvm::Triple::EnvironmentType::MSVC)
-        Syntax = JSONCommandLineSyntax::Windows;
-    }
+#endif
   }
 
   if (Syntax == JSONCommandLineSyntax::Windows) {
@@ -198,7 +195,7 @@ JSONCompilationDatabase::loadFromFile(StringRef FilePath,
                                       JSONCommandLineSyntax Syntax) {
   // Don't mmap: if we're a long-lived process, the build system may overwrite.
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> DatabaseBuffer =
-      llvm::MemoryBuffer::getFile(FilePath, /*FileSize=*/-1,
+      llvm::MemoryBuffer::getFile(FilePath, /*IsText=*/false,
                                   /*RequiresNullTerminator=*/true,
                                   /*IsVolatile=*/true);
   if (std::error_code Result = DatabaseBuffer.getError()) {
@@ -217,7 +214,7 @@ JSONCompilationDatabase::loadFromBuffer(StringRef DatabaseString,
                                         std::string &ErrorMessage,
                                         JSONCommandLineSyntax Syntax) {
   std::unique_ptr<llvm::MemoryBuffer> DatabaseBuffer(
-      llvm::MemoryBuffer::getMemBuffer(DatabaseString));
+      llvm::MemoryBuffer::getMemBufferCopy(DatabaseString));
   std::unique_ptr<JSONCompilationDatabase> Database(
       new JSONCompilationDatabase(std::move(DatabaseBuffer), Syntax));
   if (!Database->parse(ErrorMessage))

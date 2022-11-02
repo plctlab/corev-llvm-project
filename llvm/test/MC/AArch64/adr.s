@@ -1,4 +1,4 @@
-// RUN: llvm-mc -triple aarch64-elf -filetype=obj %s -o - | llvm-objdump -d -r - | FileCheck %s
+// RUN: llvm-mc -triple aarch64-elf -filetype=obj %s -o - | llvm-objdump --no-print-imm-hex -d -r - | FileCheck %s
 
 // CHECK: adr x0, #100
 // CHECK-NEXT: adr x2, #0
@@ -19,15 +19,15 @@
   adr x5, (0xffffffff000f1000 - 0xffffffff00000000 + Symbol)
   adr x6, Symbol + (0xffffffff000f1000 - 0xffffffff00000000)
 
-// CHECK-NEXT: adrp x0, #0
+// CHECK-NEXT: adrp x0, 0x0
 // CHECK-NEXT: R_AARCH64_ADR_PREL_PG_HI21	Symbol
-// CHECK-NEXT: adrp x2, #0
+// CHECK-NEXT: adrp x2, 0x0
 // CHECK-NEXT: R_AARCH64_ADR_PREL_PG_HI21	Symbol
-// CHECK-NEXT: adrp x3, #0
+// CHECK-NEXT: adrp x3, 0x0
 // CHECK-NEXT: R_AARCH64_ADR_PREL_PG_HI21	Symbol+0xf1000
-// CHECK-NEXT: adrp x4, #0
+// CHECK-NEXT: adrp x4, 0x0
 // CHECK-NEXT: R_AARCH64_ADR_PREL_PG_HI21	Symbol+0xf1000
-// CHECK-NEXT: adrp x5, #0
+// CHECK-NEXT: adrp x5, 0x0
 // CHECK-NEXT: R_AARCH64_ADR_PREL_PG_HI21	Symbol+0xf1000
 
   adrp x0, Symbol

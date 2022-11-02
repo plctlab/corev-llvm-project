@@ -53,6 +53,7 @@ struct {
   void Visit(const OMPClause *C);
   void Visit(const BlockDecl::Capture &C);
   void Visit(const GenericSelectionExpr::ConstAssociation &A);
+  void Visit(const concepts::Requirement *R);
   void Visit(const APValue &Value, QualType Ty);
 };
 */
@@ -85,6 +86,9 @@ public:
   TraversalKind GetTraversalKind() const { return Traversal; }
 
   void Visit(const Decl *D) {
+    if (Traversal == TK_IgnoreUnlessSpelledInSource && D->isImplicit())
+      return;
+
     getNodeDelegate().AddChild([=] {
       getNodeDelegate().Visit(D);
       if (!D)
@@ -123,9 +127,6 @@ public:
         switch (Traversal) {
         case TK_AsIs:
           break;
-        case TK_IgnoreImplicitCastsAndParentheses:
-          S = E->IgnoreParenImpCasts();
-          break;
         case TK_IgnoreUnlessSpelledInSource:
           S = E->IgnoreUnlessSpelledInSource();
           break;
@@ -141,10 +142,13 @@ public:
       ConstStmtVisitor<Derived>::Visit(S);
 
       // Some statements have custom mechanisms for dumping their children.
-      if (isa<DeclStmt>(S) || isa<GenericSelectionExpr>(S))
+      if (isa<DeclStmt>(S) || isa<GenericSelectionExpr>(S) ||
+          isa<RequiresExpr>(S))
         return;
 
-      if (isa<LambdaExpr>(S) && Traversal == TK_IgnoreUnlessSpelledInSource)
+      if (Traversal == TK_IgnoreUnlessSpelledInSource &&
+          isa<LambdaExpr, CXXForRangeStmt, CallExpr,
+              CXXRewrittenBinaryOperator>(S))
         return;
 
       for (const Stmt *SubStmt : S->children())
@@ -185,6 +189,8 @@ public:
   }
 
   void Visit(const CXXCtorInitializer *Init) {
+    if (Traversal == TK_IgnoreUnlessSpelledInSource && !Init->isWritten())
+      return;
     getNodeDelegate().AddChild([=] {
       getNodeDelegate().Visit(Init);
       Visit(Init->getInit());
@@ -221,6 +227,28 @@ public:
       if (const TypeSourceInfo *TSI = A.getTypeSourceInfo())
         Visit(TSI->getType());
       Visit(A.getAssociationExpr());
+    });
+  }
+
+  void Visit(const concepts::Requirement *R) {
+    getNodeDelegate().AddChild([=] {
+      getNodeDelegate().Visit(R);
+      if (!R)
+        return;
+      if (auto *TR = dyn_cast<concepts::TypeRequirement>(R)) {
+        if (!TR->isSubstitutionFailure())
+          Visit(TR->getType()->getType().getTypePtr());
+      } else if (auto *ER = dyn_cast<concepts::ExprRequirement>(R)) {
+        if (!ER->isExprSubstitutionFailure())
+          Visit(ER->getExpr());
+        if (!ER->getReturnTypeRequirement().isEmpty())
+          Visit(ER->getReturnTypeRequirement()
+                    .getTypeConstraint()
+                    ->getImmediatelyDeclaredConstraint());
+      } else if (auto *NR = dyn_cast<concepts::NestedRequirement>(R)) {
+        if (!NR->isSubstitutionFailure())
+          Visit(NR->getConstraintExpr());
+      }
     });
   }
 
@@ -358,16 +386,16 @@ public:
     // FIXME: AttrKind
     Visit(T->getModifiedType());
   }
-  void VisitSubstTemplateTypeParmType(const SubstTemplateTypeParmType *T) {
-    Visit(T->getReplacedParameter());
+  void VisitBTFTagAttributedType(const BTFTagAttributedType *T) {
+    Visit(T->getWrappedType());
   }
+  void VisitSubstTemplateTypeParmType(const SubstTemplateTypeParmType *) {}
   void
   VisitSubstTemplateTypeParmPackType(const SubstTemplateTypeParmPackType *T) {
-    Visit(T->getReplacedParameter());
     Visit(T->getArgumentPack());
   }
   void VisitTemplateSpecializationType(const TemplateSpecializationType *T) {
-    for (const auto &Arg : *T)
+    for (const auto &Arg : T->template_arguments())
       Visit(Arg);
   }
   void VisitObjCObjectPointerType(const ObjCObjectPointerType *T) {
@@ -401,6 +429,9 @@ public:
     if (const Expr *TRC = D->getTrailingRequiresClause())
       Visit(TRC);
 
+    if (Traversal == TK_IgnoreUnlessSpelledInSource && D->isDefaulted())
+      return;
+
     if (const auto *C = dyn_cast<CXXConstructorDecl>(D))
       for (const auto *I : C->inits())
         Visit(I);
@@ -417,6 +448,9 @@ public:
   }
 
   void VisitVarDecl(const VarDecl *D) {
+    if (Traversal == TK_IgnoreUnlessSpelledInSource && D->isCXXForRangeDecl())
+      return;
+
     if (D->hasInit())
       Visit(D->getInit());
   }
@@ -428,6 +462,12 @@ public:
   }
 
   void VisitBindingDecl(const BindingDecl *D) {
+    if (Traversal == TK_IgnoreUnlessSpelledInSource)
+      return;
+
+    if (const auto *V = D->getHoldingVar())
+      Visit(V);
+
     if (const auto *E = D->getBinding())
       Visit(E);
   }
@@ -583,7 +623,14 @@ public:
     Visit(D->getConstraintExpr());
   }
 
+  void VisitImplicitConceptSpecializationDecl(
+      const ImplicitConceptSpecializationDecl *CSD) {
+    for (const TemplateArgument &Arg : CSD->getTemplateArguments())
+      Visit(Arg);
+  }
+
   void VisitConceptSpecializationExpr(const ConceptSpecializationExpr *CSE) {
+    Visit(CSE->getSpecializationDecl());
     if (CSE->hasExplicitTemplateArgs())
       for (const auto &ArgLoc : CSE->getTemplateArgsAsWritten()->arguments())
         dumpTemplateArgumentLoc(ArgLoc);
@@ -677,6 +724,13 @@ public:
     }
   }
 
+  void VisitRequiresExpr(const RequiresExpr *E) {
+    for (auto *D : E->getLocalParameters())
+      Visit(D);
+    for (auto *R : E->getRequirements())
+      Visit(R);
+  }
+
   void VisitLambdaExpr(const LambdaExpr *Node) {
     if (Traversal == TK_IgnoreUnlessSpelledInSource) {
       for (unsigned I = 0, N = Node->capture_size(); I != N; ++I) {
@@ -715,6 +769,35 @@ public:
   void VisitObjCAtCatchStmt(const ObjCAtCatchStmt *Node) {
     if (const VarDecl *CatchParam = Node->getCatchParamDecl())
       Visit(CatchParam);
+  }
+
+  void VisitCXXForRangeStmt(const CXXForRangeStmt *Node) {
+    if (Traversal == TK_IgnoreUnlessSpelledInSource) {
+      Visit(Node->getInit());
+      Visit(Node->getLoopVariable());
+      Visit(Node->getRangeInit());
+      Visit(Node->getBody());
+    }
+  }
+
+  void VisitCallExpr(const CallExpr *Node) {
+    for (const auto *Child :
+         make_filter_range(Node->children(), [this](const Stmt *Child) {
+           if (Traversal != TK_IgnoreUnlessSpelledInSource)
+             return false;
+           return !isa<CXXDefaultArgExpr>(Child);
+         })) {
+      Visit(Child);
+    }
+  }
+
+  void VisitCXXRewrittenBinaryOperator(const CXXRewrittenBinaryOperator *Node) {
+    if (Traversal == TK_IgnoreUnlessSpelledInSource) {
+      Visit(Node->getLHS());
+      Visit(Node->getRHS());
+    } else {
+      ConstStmtVisitor<Derived>::VisitCXXRewrittenBinaryOperator(Node);
+    }
   }
 
   void VisitExpressionTemplateArgument(const TemplateArgument &TA) {

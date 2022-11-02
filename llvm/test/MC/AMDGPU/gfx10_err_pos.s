@@ -1,14 +1,6 @@
 // RUN: not llvm-mc -arch=amdgcn -mcpu=gfx1010 -mattr=+WavefrontSize32,-WavefrontSize64 %s 2>&1 | FileCheck %s --implicit-check-not=error: --strict-whitespace
 
 //==============================================================================
-// destination must be different than all sources
-
-v_mqsad_pk_u16_u8 v[0:1], v[1:2], v9, v[4:5]
-// CHECK: error: destination must be different than all sources
-// CHECK-NEXT:{{^}}v_mqsad_pk_u16_u8 v[0:1], v[1:2], v9, v[4:5]
-// CHECK-NEXT:{{^}}^
-
-//==============================================================================
 // dim modifier is required on this GPU
 
 image_atomic_add v252, v2, s[8:15]
@@ -36,7 +28,7 @@ tbuffer_store_format_xyzw v[1:4], off, ttmp[4:7], s0 format:[BUF_NUM_FORMAT_UINT
 // expected ')' in parentheses expression
 
 v_bfe_u32 v0, 1+(100, v1, v2
-// CHECK: error: expected ')' in parentheses expression
+// CHECK: :[[#@LINE-1]]:21: error: expected ')'
 // CHECK-NEXT:{{^}}v_bfe_u32 v0, 1+(100, v1, v2
 // CHECK-NEXT:{{^}}                    ^
 
@@ -75,12 +67,12 @@ ds_swizzle_b32 v8, v2 offset:swizzle(QUAD_PERM, 4, 1, 2, 3)
 s_atc_probe_buffer 0x1, s[8:11], -1
 // CHECK: error: expected a 20-bit unsigned offset
 // CHECK-NEXT:{{^}}s_atc_probe_buffer 0x1, s[8:11], -1
-// CHECK-NEXT:{{^}}                   ^
+// CHECK-NEXT:{{^}}                                 ^
 
 s_atc_probe_buffer 0x1, s[8:11], 0xFFFFFFFFFFF00000
 // CHECK: error: expected a 20-bit unsigned offset
 // CHECK-NEXT:{{^}}s_atc_probe_buffer 0x1, s[8:11], 0xFFFFFFFFFFF00000
-// CHECK-NEXT:{{^}}                   ^
+// CHECK-NEXT:{{^}}                                 ^
 
 s_buffer_atomic_swap s5, s[4:7], 0x1FFFFF
 // CHECK: error: expected a 20-bit unsigned offset
@@ -93,12 +85,38 @@ s_buffer_atomic_swap s5, s[4:7], 0x1FFFFF
 s_atc_probe 0x7, s[4:5], 0x1FFFFF
 // CHECK: error: expected a 21-bit signed offset
 // CHECK-NEXT:{{^}}s_atc_probe 0x7, s[4:5], 0x1FFFFF
-// CHECK-NEXT:{{^}}            ^
+// CHECK-NEXT:{{^}}                         ^
 
 s_atomic_swap s5, s[2:3], 0x1FFFFF
 // CHECK: error: expected a 21-bit signed offset
 // CHECK-NEXT:{{^}}s_atomic_swap s5, s[2:3], 0x1FFFFF
 // CHECK-NEXT:{{^}}                          ^
+
+//==============================================================================
+// expected a 2-bit value
+
+v_mov_b32_dpp v5, v1 quad_perm:[3,2,1,4] row_mask:0x0 bank_mask:0x0
+// CHECK: error: expected a 2-bit value
+// CHECK-NEXT:{{^}}v_mov_b32_dpp v5, v1 quad_perm:[3,2,1,4] row_mask:0x0 bank_mask:0x0
+// CHECK-NEXT:{{^}}                                      ^
+
+v_mov_b32_dpp v5, v1 quad_perm:[3,-1,1,3] row_mask:0x0 bank_mask:0x0
+// CHECK: error: expected a 2-bit value
+// CHECK-NEXT:{{^}}v_mov_b32_dpp v5, v1 quad_perm:[3,-1,1,3] row_mask:0x0 bank_mask:0x0
+// CHECK-NEXT:{{^}}                                  ^
+
+//==============================================================================
+// expected a 3-bit value
+
+v_mov_b32_dpp v5, v1 dpp8:[-1,1,2,3,4,5,6,7]
+// CHECK: error: expected a 3-bit value
+// CHECK-NEXT:{{^}}v_mov_b32_dpp v5, v1 dpp8:[-1,1,2,3,4,5,6,7]
+// CHECK-NEXT:{{^}}                           ^
+
+v_mov_b32_dpp v5, v1 dpp8:[0,1,2,8,4,5,6,7]
+// CHECK: error: expected a 3-bit value
+// CHECK-NEXT:{{^}}v_mov_b32_dpp v5, v1 dpp8:[0,1,2,8,4,5,6,7]
+// CHECK-NEXT:{{^}}                                 ^
 
 //==============================================================================
 // expected a 5-character mask
@@ -177,6 +195,16 @@ v_pk_add_u16 v1, v2, v3 op_sel:[0,0,0,0,0]
 // CHECK-NEXT:{{^}}v_pk_add_u16 v1, v2, v3 op_sel:[0,0,0,0,0]
 // CHECK-NEXT:{{^}}                                       ^
 
+v_mov_b32_dpp v5, v1 dpp8:[0,1,2,3,4,5,6,7)
+// CHECK: error: expected a closing square bracket
+// CHECK-NEXT:{{^}}v_mov_b32_dpp v5, v1 dpp8:[0,1,2,3,4,5,6,7)
+// CHECK-NEXT:{{^}}                                          ^
+
+v_mov_b32_dpp v5, v1 quad_perm:[3,2,1,0) row_mask:0x0 bank_mask:0x0
+// CHECK: error: expected a closing square bracket
+// CHECK-NEXT:{{^}}v_mov_b32_dpp v5, v1 quad_perm:[3,2,1,0) row_mask:0x0 bank_mask:0x0
+// CHECK-NEXT:{{^}}                                       ^
+
 //==============================================================================
 // expected a colon
 
@@ -213,6 +241,16 @@ v_pk_add_u16 v1, v2, v3 op_sel:[0 0]
 // CHECK-NEXT:{{^}}v_pk_add_u16 v1, v2, v3 op_sel:[0 0]
 // CHECK-NEXT:{{^}}                                  ^
 
+v_mov_b32_dpp v5, v1 dpp8:[0,1,2,3,4,5,6]
+// CHECK: error: expected a comma
+// CHECK-NEXT:{{^}}v_mov_b32_dpp v5, v1 dpp8:[0,1,2,3,4,5,6]
+// CHECK-NEXT:{{^}}                                        ^
+
+v_mov_b32_dpp v5, v1 quad_perm:[3,2] row_mask:0x0 bank_mask:0x0
+// CHECK: error: expected a comma
+// CHECK-NEXT:{{^}}v_mov_b32_dpp v5, v1 quad_perm:[3,2] row_mask:0x0 bank_mask:0x0
+// CHECK-NEXT:{{^}}                                   ^
+
 //==============================================================================
 // expected a comma or a closing parenthesis
 
@@ -233,6 +271,16 @@ s_mov_b64 s[10:11], [s0,s1
 // CHECK: error: expected a comma or a closing square bracket
 // CHECK-NEXT:{{^}}s_mov_b64 s[10:11], [s0,s1
 // CHECK-NEXT:{{^}}                          ^
+
+image_load_mip v[253:255], [v255, v254 dmask:0xe dim:1D
+// CHECK: error: expected a comma or a closing square bracket
+// CHECK-NEXT:{{^}}image_load_mip v[253:255], [v255, v254 dmask:0xe dim:1D
+// CHECK-NEXT:{{^}}                                       ^
+
+image_load_mip v[253:255], [v255, v254
+// CHECK: error: expected a comma or a closing square bracket
+// CHECK-NEXT:{{^}}image_load_mip v[253:255], [v255, v254
+// CHECK-NEXT:{{^}}                                      ^
 
 //==============================================================================
 // expected a counter name
@@ -282,6 +330,19 @@ v_pk_add_u16 v1, v2, v3 op_sel:
 // CHECK-NEXT:{{^}}                               ^
 
 //==============================================================================
+// expected a register
+
+image_load v[0:3], [v4, v5, 6], s[8:15] dmask:0xf dim:3D unorm
+// CHECK: error: expected a register
+// CHECK-NEXT:{{^}}image_load v[0:3], [v4, v5, 6], s[8:15] dmask:0xf dim:3D unorm
+// CHECK-NEXT:{{^}}                            ^
+
+image_load v[0:3], [v4, v5, v], s[8:15] dmask:0xf dim:3D unorm
+// CHECK: error: expected a register
+// CHECK-NEXT:{{^}}image_load v[0:3], [v4, v5, v], s[8:15] dmask:0xf dim:3D unorm
+// CHECK-NEXT:{{^}}                            ^
+
+//==============================================================================
 // expected a register or a list of registers
 
 s_mov_b32 s1, [s0, 1
@@ -316,26 +377,6 @@ ds_swizzle_b32 v8, v2 offset:swizzle(XXX,1)
 //==============================================================================
 // expected absolute expression
 
-ds_swizzle_b32 v8, v2 offset:SWIZZLE(QUAD_PERM, 0, 1, 2, 3)
-// CHECK: error: expected absolute expression
-// CHECK-NEXT:{{^}}ds_swizzle_b32 v8, v2 offset:SWIZZLE(QUAD_PERM, 0, 1, 2, 3)
-// CHECK-NEXT:{{^}}                             ^
-
-s_sendmsg sendmsg(MSG_GS, GS_OP_CUTX, 0)
-// CHECK: error: expected absolute expression
-// CHECK-NEXT:{{^}}s_sendmsg sendmsg(MSG_GS, GS_OP_CUTX, 0)
-// CHECK-NEXT:{{^}}                          ^
-
-s_sendmsg sendmsg(MSG_GSX, GS_OP_CUT, 0)
-// CHECK: error: expected absolute expression
-// CHECK-NEXT:{{^}}s_sendmsg sendmsg(MSG_GSX, GS_OP_CUT, 0)
-// CHECK-NEXT:{{^}}                  ^
-
-s_setreg_b32  hwreg(HW_REG_WRONG), s2
-// CHECK: error: expected absolute expression
-// CHECK-NEXT:{{^}}s_setreg_b32  hwreg(HW_REG_WRONG), s2
-// CHECK-NEXT:{{^}}                    ^
-
 s_waitcnt vmcnt(x)
 // CHECK: error: expected absolute expression
 // CHECK-NEXT:{{^}}s_waitcnt vmcnt(x)
@@ -356,11 +397,66 @@ tbuffer_store_format_xyzw v[1:4], off, ttmp[4:7], s0 format:BUF_NUM_FORMAT_UINT]
 // CHECK-NEXT:{{^}}tbuffer_store_format_xyzw v[1:4], off, ttmp[4:7], s0 format:BUF_NUM_FORMAT_UINT]
 // CHECK-NEXT:{{^}}                                                            ^
 
+v_mov_b32_dpp v5, v1 dpp8:[0,1,2,x,4,5,6,7]
+// CHECK: error: expected absolute expression
+// CHECK-NEXT:{{^}}v_mov_b32_dpp v5, v1 dpp8:[0,1,2,x,4,5,6,7]
+// CHECK-NEXT:{{^}}                                 ^
+
+v_mov_b32_dpp v5, v1 quad_perm:[3,x,1,0] row_mask:0x0 bank_mask:0x0
+// CHECK: error: expected absolute expression
+// CHECK-NEXT:{{^}}v_mov_b32_dpp v5, v1 quad_perm:[3,x,1,0] row_mask:0x0 bank_mask:0x0
+// CHECK-NEXT:{{^}}                                  ^
+
+v_mov_b32_dpp v5, v1 row_share:x row_mask:0x0 bank_mask:0x0
+// CHECK: error: expected absolute expression
+// CHECK-NEXT:{{^}}v_mov_b32_dpp v5, v1 row_share:x row_mask:0x0 bank_mask:0x0
+// CHECK-NEXT:{{^}}                               ^
+
+//==============================================================================
+// expected a message name or an absolute expression
+
+s_sendmsg sendmsg(MSG_GSX, GS_OP_CUT, 0)
+// CHECK: error: expected a message name or an absolute expression
+// CHECK-NEXT:{{^}}s_sendmsg sendmsg(MSG_GSX, GS_OP_CUT, 0)
+// CHECK-NEXT:{{^}}                  ^
+
+//==============================================================================
+// expected a register name or an absolute expression
+
+s_setreg_b32  hwreg(HW_REG_WRONG), s2
+// CHECK: error: expected a register name or an absolute expression
+// CHECK-NEXT:{{^}}s_setreg_b32  hwreg(HW_REG_WRONG), s2
+// CHECK-NEXT:{{^}}                    ^
+
+//==============================================================================
+// expected a sendmsg macro or an absolute expression
+
+s_sendmsg undef
+// CHECK: error: expected a sendmsg macro or an absolute expression
+// CHECK-NEXT:{{^}}s_sendmsg undef
+// CHECK-NEXT:{{^}}          ^
+
+//==============================================================================
+// expected a swizzle macro or an absolute expression
+
+ds_swizzle_b32 v8, v2 offset:SWZ(QUAD_PERM, 0, 1, 2, 3)
+// CHECK: error: expected a swizzle macro or an absolute expression
+// CHECK-NEXT:{{^}}ds_swizzle_b32 v8, v2 offset:SWZ(QUAD_PERM, 0, 1, 2, 3)
+// CHECK-NEXT:{{^}}                             ^
+
+//==============================================================================
+// expected a hwreg macro or an absolute expression
+
+s_setreg_b32 undef, s2
+// CHECK: error: expected a hwreg macro or an absolute expression
+// CHECK-NEXT:{{^}}s_setreg_b32 undef, s2
+// CHECK-NEXT:{{^}}             ^
+
 //==============================================================================
 // expected an 11-bit unsigned offset
 
 flat_atomic_cmpswap v0, v[1:2], v[3:4] offset:4095 glc
-// CHECK: error: expected an 11-bit unsigned offset
+// CHECK: error: expected a 11-bit unsigned offset
 // CHECK-NEXT:{{^}}flat_atomic_cmpswap v0, v[1:2], v[3:4] offset:4095 glc
 // CHECK-NEXT:{{^}}                                       ^
 
@@ -388,32 +484,51 @@ v_mov_b32_sdwa v1, sext(u)
 // CHECK-NEXT:{{^}}                        ^
 
 //==============================================================================
-// failed parsing operand.
+// expected an identifier
 
-image_load v[0:1], v0, s[0:7] dmask:0x9 dim:1 D
-// CHECK: error: failed parsing operand.
-// CHECK-NEXT:{{^}}image_load v[0:1], v0, s[0:7] dmask:0x9 dim:1 D
-// CHECK-NEXT:{{^}}                                              ^
+v_mov_b32_sdwa v5, v1 dst_sel:
+// CHECK: error: expected an identifier
+// CHECK-NEXT:{{^}}v_mov_b32_sdwa v5, v1 dst_sel:
+// CHECK-NEXT:{{^}}                              ^
+
+v_mov_b32_sdwa v5, v1 dst_sel:0
+// CHECK: error: expected an identifier
+// CHECK-NEXT:{{^}}v_mov_b32_sdwa v5, v1 dst_sel:0
+// CHECK-NEXT:{{^}}                              ^
+
+v_mov_b32_sdwa v5, v1 dst_sel:DWORD dst_unused:[UNUSED_PAD]
+// CHECK: error: expected an identifier
+// CHECK-NEXT:{{^}}v_mov_b32_sdwa v5, v1 dst_sel:DWORD dst_unused:[UNUSED_PAD]
+// CHECK-NEXT:{{^}}                                               ^
+
+//==============================================================================
+// expected an opening square bracket
+
+v_mov_b32_dpp v5, v1 dpp8:(0,1,2,3,4,5,6,7)
+// CHECK: error: expected an opening square bracket
+// CHECK-NEXT:{{^}}v_mov_b32_dpp v5, v1 dpp8:(0,1,2,3,4,5,6,7)
+// CHECK-NEXT:{{^}}                          ^
+
+v_mov_b32_dpp v5, v1 quad_perm:(3,2,1,0) row_mask:0x0 bank_mask:0x0
+// CHECK: error: expected an opening square bracket
+// CHECK-NEXT:{{^}}v_mov_b32_dpp v5, v1 quad_perm:(3,2,1,0) row_mask:0x0 bank_mask:0x0
+// CHECK-NEXT:{{^}}                               ^
+
+//==============================================================================
+// expected an operation name or an absolute expression
+
+s_sendmsg sendmsg(MSG_GS, GS_OP_CUTX, 0)
+// CHECK: error: expected an operation name or an absolute expression
+// CHECK-NEXT:{{^}}s_sendmsg sendmsg(MSG_GS, GS_OP_CUTX, 0)
+// CHECK-NEXT:{{^}}                          ^
+
+//==============================================================================
+// failed parsing operand.
 
 v_ceil_f16 v0, abs(neg(1))
 // CHECK: error: failed parsing operand.
 // CHECK-NEXT:{{^}}v_ceil_f16 v0, abs(neg(1))
 // CHECK-NEXT:{{^}}                   ^
-
-v_interp_mov_f32 v11, invalid_param_3, attr0.y
-// CHECK: error: failed parsing operand.
-// CHECK-NEXT:{{^}}v_interp_mov_f32 v11, invalid_param_3, attr0.y
-// CHECK-NEXT:{{^}}                      ^
-
-v_interp_mov_f32 v8, foo, attr0.x
-// CHECK: error: failed parsing operand.
-// CHECK-NEXT:{{^}}v_interp_mov_f32 v8, foo, attr0.x
-// CHECK-NEXT:{{^}}                     ^
-
-v_interp_p2_f32 v0, v1, attr
-// CHECK: error: failed parsing operand.
-// CHECK-NEXT:{{^}}v_interp_p2_f32 v0, v1, attr
-// CHECK-NEXT:{{^}}                        ^
 
 //==============================================================================
 // first register index should not exceed second index
@@ -429,7 +544,17 @@ s_mov_b64 s[10:11], s[1:0]
 ds_swizzle_b32 v8, v2 offset:swizzle(BROADCAST,3,1)
 // CHECK: error: group size must be a power of two
 // CHECK-NEXT:{{^}}ds_swizzle_b32 v8, v2 offset:swizzle(BROADCAST,3,1)
-// CHECK-NEXT:{{^}}                                              ^
+// CHECK-NEXT:{{^}}                                               ^
+
+ds_swizzle_b32 v8, v2 offset:swizzle(REVERSE,3)
+// CHECK: error: group size must be a power of two
+// CHECK-NEXT:{{^}}ds_swizzle_b32 v8, v2 offset:swizzle(REVERSE,3)
+// CHECK-NEXT:{{^}}                                             ^
+
+ds_swizzle_b32 v8, v2 offset:swizzle(SWAP,3)
+// CHECK: error: group size must be a power of two
+// CHECK-NEXT:{{^}}ds_swizzle_b32 v8, v2 offset:swizzle(SWAP,3)
+// CHECK-NEXT:{{^}}                                          ^
 
 //==============================================================================
 // group size must be in the interval [1,16]
@@ -450,16 +575,16 @@ ds_swizzle_b32 v8, v2 offset:swizzle(BROADCAST,1,0)
 //==============================================================================
 // image address size does not match dim and a16
 
-image_load v[0:3], v[0:1], s[0:7] dmask:0xf dim:SQ_RSRC_IMG_1D
+image_load v[0:3], v[0:1], s[0:7] dmask:0xf dim:SQ_RSRC_IMG_3D
 // CHECK: error: image address size does not match dim and a16
-// CHECK-NEXT:{{^}}image_load v[0:3], v[0:1], s[0:7] dmask:0xf dim:SQ_RSRC_IMG_1D
+// CHECK-NEXT:{{^}}image_load v[0:3], v[0:1], s[0:7] dmask:0xf dim:SQ_RSRC_IMG_3D
 // CHECK-NEXT:{{^}}^
 
 //==============================================================================
-// image data size does not match dmask and tfe
+// image data size does not match dmask, d16 and tfe
 
 image_load v[0:1], v0, s[0:7] dmask:0xf dim:SQ_RSRC_IMG_1D
-// CHECK: error: image data size does not match dmask and tfe
+// CHECK: error: image data size does not match dmask, d16 and tfe
 // CHECK-NEXT:{{^}}image_load v[0:1], v0, s[0:7] dmask:0xf dim:SQ_RSRC_IMG_1D
 // CHECK-NEXT:{{^}}^
 
@@ -485,7 +610,7 @@ s_cbranch_join 1
 s_getreg_b32  s2, hwreg(3,32,32)
 // CHECK: error: invalid bit offset: only 5-bit values are legal
 // CHECK-NEXT:{{^}}s_getreg_b32  s2, hwreg(3,32,32)
-// CHECK-NEXT:{{^}}                  ^
+// CHECK-NEXT:{{^}}                          ^
 
 //==============================================================================
 // invalid bitfield width: only values from 1 to 32 are legal
@@ -493,7 +618,7 @@ s_getreg_b32  s2, hwreg(3,32,32)
 s_setreg_b32  hwreg(3,0,33), s2
 // CHECK: error: invalid bitfield width: only values from 1 to 32 are legal
 // CHECK-NEXT:{{^}}s_setreg_b32  hwreg(3,0,33), s2
-// CHECK-NEXT:{{^}}              ^
+// CHECK-NEXT:{{^}}                        ^
 
 //==============================================================================
 // invalid code of hardware register: only 6-bit values are legal
@@ -501,7 +626,7 @@ s_setreg_b32  hwreg(3,0,33), s2
 s_setreg_b32  hwreg(0x40), s2
 // CHECK: error: invalid code of hardware register: only 6-bit values are legal
 // CHECK-NEXT:{{^}}s_setreg_b32  hwreg(0x40), s2
-// CHECK-NEXT:{{^}}              ^
+// CHECK-NEXT:{{^}}                    ^
 
 //==============================================================================
 // invalid counter name x
@@ -512,11 +637,50 @@ s_waitcnt vmcnt(0) & expcnt(0) x(0)
 // CHECK-NEXT:{{^}}                               ^
 
 //==============================================================================
+// invalid dim value
+
+image_load v[0:1], v0, s[0:7] dmask:0x9 dim:1 D
+// CHECK: error: invalid dim value
+// CHECK-NEXT:{{^}}image_load v[0:1], v0, s[0:7] dmask:0x9 dim:1 D
+// CHECK-NEXT:{{^}}                                            ^
+
+image_atomic_xor v4, v32, s[96:103] dmask:0x1 dim:, glc
+// CHECK: error: invalid dim value
+// CHECK-NEXT:{{^}}image_atomic_xor v4, v32, s[96:103] dmask:0x1 dim:, glc
+// CHECK-NEXT:{{^}}                                                  ^
+
+image_load v[0:1], v0, s[0:7] dmask:0x9 dim:7D
+// CHECK: error: invalid dim value
+// CHECK-NEXT:{{^}}image_load v[0:1], v0, s[0:7] dmask:0x9 dim:7D
+// CHECK-NEXT:{{^}}                                            ^
+
+//==============================================================================
+// invalid dst_sel value
+
+v_mov_b32_sdwa v5, v1 dst_sel:WORD
+// CHECK: error: invalid dst_sel value
+// CHECK-NEXT:{{^}}v_mov_b32_sdwa v5, v1 dst_sel:WORD
+// CHECK-NEXT:{{^}}                              ^
+
+//==============================================================================
+// invalid dst_unused value
+
+v_mov_b32_sdwa v5, v1 dst_unused:UNUSED
+// CHECK: error: invalid dst_unused value
+// CHECK-NEXT:{{^}}v_mov_b32_sdwa v5, v1 dst_unused:UNUSED
+// CHECK-NEXT:{{^}}                                 ^
+
+//==============================================================================
 // invalid exp target
 
 exp invalid_target_10 v3, v2, v1, v0
 // CHECK: error: invalid exp target
 // CHECK-NEXT:{{^}}exp invalid_target_10 v3, v2, v1, v0
+// CHECK-NEXT:{{^}}    ^
+
+exp pos00 v3, v2, v1, v0
+// CHECK: error: invalid exp target
+// CHECK-NEXT:{{^}}exp pos00 v3, v2, v1, v0
 // CHECK-NEXT:{{^}}    ^
 
 //==============================================================================
@@ -536,22 +700,20 @@ v_dot_f32_f16 v0, v1, v2
 // CHECK-NEXT:{{^}}^
 
 //==============================================================================
-// invalid literal operand
+// invalid interpolation attribute
 
-v_add_f64 v[0:1], 1.23456, -abs(1.2345)
-// CHECK: error: invalid literal operand
-// CHECK-NEXT:{{^}}v_add_f64 v[0:1], 1.23456, -abs(1.2345)
-// CHECK-NEXT:{{^}}^
+v_interp_p2_f32 v0, v1, att
+// CHECK: error: invalid interpolation attribute
+// CHECK-NEXT:{{^}}v_interp_p2_f32 v0, v1, att
+// CHECK-NEXT:{{^}}                        ^
 
-v_min3_i16 v5, 0x5678, 0x5678, 0x5679
-// CHECK: error: invalid literal operand
-// CHECK-NEXT:{{^}}v_min3_i16 v5, 0x5678, 0x5678, 0x5679
-// CHECK-NEXT:{{^}}^
+//==============================================================================
+// invalid interpolation slot
 
-v_pk_add_f16 v1, 25.0, 25.1
-// CHECK: error: invalid literal operand
-// CHECK-NEXT:{{^}}v_pk_add_f16 v1, 25.0, 25.1
-// CHECK-NEXT:{{^}}^
+v_interp_mov_f32 v8, p1, attr0.x
+// CHECK: error: invalid interpolation slot
+// CHECK-NEXT:{{^}}v_interp_mov_f32 v8, p1, attr0.x
+// CHECK-NEXT:{{^}}                     ^
 
 //==============================================================================
 // invalid mask
@@ -567,7 +729,7 @@ ds_swizzle_b32 v8, v2 offset:swizzle(BITMASK_PERM, "pppi2")
 s_sendmsg sendmsg(-1)
 // CHECK: error: invalid message id
 // CHECK-NEXT:{{^}}s_sendmsg sendmsg(-1)
-// CHECK-NEXT:{{^}}          ^
+// CHECK-NEXT:{{^}}                  ^
 
 //==============================================================================
 // invalid message stream id
@@ -575,12 +737,12 @@ s_sendmsg sendmsg(-1)
 s_sendmsg sendmsg(2, 2, 4)
 // CHECK: error: invalid message stream id
 // CHECK-NEXT:{{^}}s_sendmsg sendmsg(2, 2, 4)
-// CHECK-NEXT:{{^}}          ^
+// CHECK-NEXT:{{^}}                        ^
 
 s_sendmsg sendmsg(MSG_GS, GS_OP_CUT, 4)
 // CHECK: error: invalid message stream id
 // CHECK-NEXT:{{^}}s_sendmsg sendmsg(MSG_GS, GS_OP_CUT, 4)
-// CHECK-NEXT:{{^}}          ^
+// CHECK-NEXT:{{^}}                                     ^
 
 //==============================================================================
 // invalid mul value.
@@ -591,12 +753,28 @@ v_cvt_f64_i32 v[5:6], s1 mul:3
 // CHECK-NEXT:{{^}}                         ^
 
 //==============================================================================
+// invalid or missing interpolation attribute channel
+
+v_interp_p2_f32 v0, v1, attr0.q
+// CHECK: error: invalid or missing interpolation attribute channel
+// CHECK-NEXT:{{^}}v_interp_p2_f32 v0, v1, attr0.q
+// CHECK-NEXT:{{^}}                        ^
+
+//==============================================================================
+// invalid or missing interpolation attribute number
+
+v_interp_p2_f32 v7, v1, attr.x
+// CHECK: error: invalid or missing interpolation attribute number
+// CHECK-NEXT:{{^}}v_interp_p2_f32 v7, v1, attr.x
+// CHECK-NEXT:{{^}}                        ^
+
+//==============================================================================
 // invalid op_sel operand
 
 v_permlane16_b32 v5, v1, s2, s3 op_sel:[0, 0, 0, 1]
 // CHECK: error: invalid op_sel operand
 // CHECK-NEXT:{{^}}v_permlane16_b32 v5, v1, s2, s3 op_sel:[0, 0, 0, 1]
-// CHECK-NEXT:{{^}}^
+// CHECK-NEXT:{{^}}                                ^
 
 //==============================================================================
 // invalid op_sel value.
@@ -612,17 +790,42 @@ v_pk_add_u16 v1, v2, v3 op_sel:[-1,0]
 v_ashrrev_i64 v[0:1], 0x100, s[0:1]
 // CHECK: error: invalid operand (violates constant bus restrictions)
 // CHECK-NEXT:{{^}}v_ashrrev_i64 v[0:1], 0x100, s[0:1]
-// CHECK-NEXT:{{^}}^
+// CHECK-NEXT:{{^}}                             ^
+
+v_ashrrev_i64 v[0:1], s3, s[0:1]
+// CHECK: error: invalid operand (violates constant bus restrictions)
+// CHECK-NEXT:{{^}}v_ashrrev_i64 v[0:1], s3, s[0:1]
+// CHECK-NEXT:{{^}}                          ^
 
 v_bfe_u32 v0, s1, 0x3039, s2
 // CHECK: error: invalid operand (violates constant bus restrictions)
 // CHECK-NEXT:{{^}}v_bfe_u32 v0, s1, 0x3039, s2
-// CHECK-NEXT:{{^}}^
+// CHECK-NEXT:{{^}}                          ^
+
+v_bfe_u32 v0, s1, s2, s3
+// CHECK: error: invalid operand (violates constant bus restrictions)
+// CHECK-NEXT:{{^}}v_bfe_u32 v0, s1, s2, s3
+// CHECK-NEXT:{{^}}                      ^
 
 v_div_fmas_f32 v5, s3, 0x123, v3
 // CHECK: error: invalid operand (violates constant bus restrictions)
 // CHECK-NEXT:{{^}}v_div_fmas_f32 v5, s3, 0x123, v3
-// CHECK-NEXT:{{^}}^
+// CHECK-NEXT:{{^}}                       ^
+
+v_div_fmas_f32 v5, s3, v3, 0x123
+// CHECK: error: invalid operand (violates constant bus restrictions)
+// CHECK-NEXT:{{^}}v_div_fmas_f32 v5, s3, v3, 0x123
+// CHECK-NEXT:{{^}}                           ^
+
+v_div_fmas_f32 v5, 0x123, v3, s3
+// CHECK: error: invalid operand (violates constant bus restrictions)
+// CHECK-NEXT:{{^}}v_div_fmas_f32 v5, 0x123, v3, s3
+// CHECK-NEXT:{{^}}                              ^
+
+v_div_fmas_f32 v5, s3, s4, v3
+// CHECK: error: invalid operand (violates constant bus restrictions)
+// CHECK-NEXT:{{^}}v_div_fmas_f32 v5, s3, s4, v3
+// CHECK-NEXT:{{^}}                       ^
 
 //==============================================================================
 // invalid operand for instruction
@@ -648,7 +851,7 @@ v_cmp_eq_f32 s[0:1], private_base, s0
 s_sendmsg sendmsg(15, -1)
 // CHECK: error: invalid operation id
 // CHECK-NEXT:{{^}}s_sendmsg sendmsg(15, -1)
-// CHECK-NEXT:{{^}}          ^
+// CHECK-NEXT:{{^}}                      ^
 
 //==============================================================================
 // invalid or unsupported register size
@@ -688,20 +891,25 @@ s_mov_b64 s[10:11], [x0,s1]
 // CHECK-NEXT:{{^}}                     ^
 
 //==============================================================================
+// invalid row_share value
+
+v_mov_b32_dpp v5, v1 row_share:16 row_mask:0x0 bank_mask:0x0
+// CHECK: error: invalid row_share value
+// CHECK-NEXT:{{^}}v_mov_b32_dpp v5, v1 row_share:16 row_mask:0x0 bank_mask:0x0
+// CHECK-NEXT:{{^}}                               ^
+
+v_mov_b32_dpp v5, v1 row_share:-1 row_mask:0x0 bank_mask:0x0
+// CHECK: error: invalid row_share value
+// CHECK-NEXT:{{^}}v_mov_b32_dpp v5, v1 row_share:-1 row_mask:0x0 bank_mask:0x0
+// CHECK-NEXT:{{^}}                               ^
+
+//==============================================================================
 // invalid syntax, expected 'neg' modifier
 
 v_ceil_f32 v0, --1
 // CHECK: error: invalid syntax, expected 'neg' modifier
 // CHECK-NEXT:{{^}}v_ceil_f32 v0, --1
 // CHECK-NEXT:{{^}}               ^
-
-//==============================================================================
-// invalid use of lds_direct
-
-v_ashrrev_i16 v0, lds_direct, v0
-// CHECK: error: invalid use of lds_direct
-// CHECK-NEXT:{{^}}v_ashrrev_i16 v0, lds_direct, v0
-// CHECK-NEXT:{{^}}^
 
 //==============================================================================
 // lane id must be in the interval [0,group size - 1]
@@ -712,12 +920,43 @@ ds_swizzle_b32 v8, v2 offset:swizzle(BROADCAST,2,-1)
 // CHECK-NEXT:{{^}}                                                 ^
 
 //==============================================================================
+// lds_direct cannot be used with this instruction
+
+v_ashrrev_i16 v0, lds_direct, v0
+// CHECK: error: lds_direct cannot be used with this instruction
+// CHECK-NEXT:{{^}}v_ashrrev_i16 v0, lds_direct, v0
+// CHECK-NEXT:{{^}}                  ^
+
+v_ashrrev_i16 v0, v1, lds_direct
+// CHECK: error: lds_direct cannot be used with this instruction
+// CHECK-NEXT:{{^}}v_ashrrev_i16 v0, v1, lds_direct
+// CHECK-NEXT:{{^}}                      ^
+
+v_mov_b32_sdwa v1, src_lds_direct dst_sel:DWORD
+// CHECK: error: lds_direct cannot be used with this instruction
+// CHECK-NEXT:{{^}}v_mov_b32_sdwa v1, src_lds_direct dst_sel:DWORD
+// CHECK-NEXT:{{^}}                   ^
+
+v_add_f32_sdwa v5, v1, lds_direct dst_sel:DWORD
+// CHECK: error: lds_direct cannot be used with this instruction
+// CHECK-NEXT:{{^}}v_add_f32_sdwa v5, v1, lds_direct dst_sel:DWORD
+// CHECK-NEXT:{{^}}                       ^
+
+//==============================================================================
+// lds_direct may be used as src0 only
+
+v_add_f32 v5, v1, lds_direct
+// CHECK: error: lds_direct may be used as src0 only
+// CHECK-NEXT:{{^}}v_add_f32 v5, v1, lds_direct
+// CHECK-NEXT:{{^}}                  ^
+
+//==============================================================================
 // message does not support operations
 
 s_sendmsg sendmsg(MSG_GS_ALLOC_REQ, 0)
 // CHECK: error: message does not support operations
 // CHECK-NEXT:{{^}}s_sendmsg sendmsg(MSG_GS_ALLOC_REQ, 0)
-// CHECK-NEXT:{{^}}          ^
+// CHECK-NEXT:{{^}}                                    ^
 
 //==============================================================================
 // message operation does not support streams
@@ -725,7 +964,20 @@ s_sendmsg sendmsg(MSG_GS_ALLOC_REQ, 0)
 s_sendmsg sendmsg(MSG_GS_DONE, GS_OP_NOP, 0)
 // CHECK: error: message operation does not support streams
 // CHECK-NEXT:{{^}}s_sendmsg sendmsg(MSG_GS_DONE, GS_OP_NOP, 0)
-// CHECK-NEXT:{{^}}          ^
+// CHECK-NEXT:{{^}}                                          ^
+
+//==============================================================================
+// missing dst operand or lds modifier
+
+buffer_load_dword off, s[8:11], s3
+// CHECK: error: missing dst operand or lds modifier
+// CHECK-NEXT:{{^}}buffer_load_dword off, s[8:11], s3
+// CHECK-NEXT:{{^}}^
+
+buffer_load_dword off, s[8:11], s3 offset:1
+// CHECK: error: missing dst operand or lds modifier
+// CHECK-NEXT:{{^}}buffer_load_dword off, s[8:11], s3 offset:1
+// CHECK-NEXT:{{^}}^
 
 //==============================================================================
 // missing message operation
@@ -733,7 +985,7 @@ s_sendmsg sendmsg(MSG_GS_DONE, GS_OP_NOP, 0)
 s_sendmsg sendmsg(MSG_SYSMSG)
 // CHECK: error: missing message operation
 // CHECK-NEXT:{{^}}s_sendmsg sendmsg(MSG_SYSMSG)
-// CHECK-NEXT:{{^}}          ^
+// CHECK-NEXT:{{^}}                  ^
 
 //==============================================================================
 // missing register index
@@ -762,18 +1014,58 @@ v_mov_b32 v0, v0 row_bcast:0
 // CHECK-NEXT:{{^}}                 ^
 
 //==============================================================================
-// only one literal operand is allowed
+// only one unique literal operand is allowed
 
 s_and_b32 s2, 0x12345678, 0x12345679
-// CHECK: error: only one literal operand is allowed
+// CHECK: error: only one unique literal operand is allowed
 // CHECK-NEXT:{{^}}s_and_b32 s2, 0x12345678, 0x12345679
-// CHECK-NEXT:{{^}}^
+// CHECK-NEXT:{{^}}                          ^
+
+v_add_f64 v[0:1], 1.23456, -abs(1.2345)
+// CHECK: error: only one unique literal operand is allowed
+// CHECK-NEXT:{{^}}v_add_f64 v[0:1], 1.23456, -abs(1.2345)
+// CHECK-NEXT:{{^}}                                ^
+
+v_min3_i16 v5, 0x5678, 0x5678, 0x5679
+// CHECK: error: only one unique literal operand is allowed
+// CHECK-NEXT:{{^}}v_min3_i16 v5, 0x5678, 0x5678, 0x5679
+// CHECK-NEXT:{{^}}                               ^
+
+v_pk_add_f16 v1, 25.0, 25.1
+// CHECK: error: only one unique literal operand is allowed
+// CHECK-NEXT:{{^}}v_pk_add_f16 v1, 25.0, 25.1
+// CHECK-NEXT:{{^}}                       ^
+
+v_fma_mix_f32 v5, 0x7c, 0x7b, 1
+// CHECK: error: only one unique literal operand is allowed
+// CHECK-NEXT:{{^}}v_fma_mix_f32 v5, 0x7c, 0x7b, 1
+// CHECK-NEXT:{{^}}                        ^
+
+v_pk_add_i16 v5, 0x7c, 0x4000
+// CHECK: error: only one unique literal operand is allowed
+// CHECK-NEXT:{{^}}v_pk_add_i16 v5, 0x7c, 0x4000
+// CHECK-NEXT:{{^}}                       ^
+
+v_pk_add_i16 v5, 0x4400, 0x4000
+// CHECK: error: only one unique literal operand is allowed
+// CHECK-NEXT:{{^}}v_pk_add_i16 v5, 0x4400, 0x4000
+// CHECK-NEXT:{{^}}                         ^
+
+v_bfe_u32 v0, v2, 123, undef
+// CHECK: error: only one unique literal operand is allowed
+// CHECK-NEXT:{{^}}v_bfe_u32 v0, v2, 123, undef
+// CHECK-NEXT:{{^}}                       ^
+
+v_bfe_u32 v0, v2, undef, 123
+// CHECK: error: only one unique literal operand is allowed
+// CHECK-NEXT:{{^}}v_bfe_u32 v0, v2, undef, 123
+// CHECK-NEXT:{{^}}                         ^
 
 //==============================================================================
-// out of bounds attr
+// out of bounds interpolation attribute number
 
 v_interp_p1_f32 v0, v1, attr64.w
-// CHECK: error: out of bounds attr
+// CHECK: error: out of bounds interpolation attribute number
 // CHECK-NEXT:{{^}}v_interp_p1_f32 v0, v1, attr64.w
 // CHECK-NEXT:{{^}}                        ^
 
@@ -866,7 +1158,17 @@ s_mov_b64 s[10:11], [s2,s1]
 v_movrels_b32_sdwa v0, 1 dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:DWORD
 // CHECK: error: source operand must be a VGPR
 // CHECK-NEXT:{{^}}v_movrels_b32_sdwa v0, 1 dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:DWORD
-// CHECK-NEXT:{{^}}^
+// CHECK-NEXT:{{^}}                       ^
+
+v_movrels_b32_sdwa v0, s0
+// CHECK: error: source operand must be a VGPR
+// CHECK-NEXT:{{^}}v_movrels_b32_sdwa v0, s0
+// CHECK-NEXT:{{^}}                       ^
+
+v_movrels_b32_sdwa v0, shared_base
+// CHECK: error: source operand must be a VGPR
+// CHECK-NEXT:{{^}}v_movrels_b32_sdwa v0, shared_base
+// CHECK-NEXT:{{^}}                       ^
 
 //==============================================================================
 // specified hardware register is not supported on this GPU
@@ -874,7 +1176,7 @@ v_movrels_b32_sdwa v0, 1 dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:DWORD
 s_getreg_b32 s2, hwreg(HW_REG_SHADER_CYCLES)
 // CHECK: error: specified hardware register is not supported on this GPU
 // CHECK-NEXT:{{^}}s_getreg_b32 s2, hwreg(HW_REG_SHADER_CYCLES)
-// CHECK-NEXT:{{^}}                 ^
+// CHECK-NEXT:{{^}}                       ^
 
 //==============================================================================
 // too few operands for instruction
@@ -1042,3 +1344,11 @@ ds_swizzle_b32 v8, v2 offset:0x10000
 // CHECK: error: expected a 16-bit offset
 // CHECK-NEXT:{{^}}ds_swizzle_b32 v8, v2 offset:0x10000
 // CHECK-NEXT:{{^}}                             ^
+
+//==============================================================================
+// not a valid operand
+
+v_cndmask_b32_sdwa v5, v1, sext(v2), vcc dst_sel:DWORD dst_unused:UNUSED_PRESERVE src0_sel:BYTE_0 src1_sel:WORD_0
+// CHECK: error: not a valid operand.
+// CHECK-NEXT:{{^}}v_cndmask_b32_sdwa v5, v1, sext(v2), vcc dst_sel:DWORD dst_unused:UNUSED_PRESERVE src0_sel:BYTE_0 src1_sel:WORD_0
+// CHECK-NEXT:{{^}}                           ^

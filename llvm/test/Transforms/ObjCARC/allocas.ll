@@ -1,4 +1,4 @@
-; RUN: opt -objc-arc -S < %s | FileCheck %s
+; RUN: opt -passes=objc-arc -S < %s | FileCheck %s
 
 declare i8* @llvm.objc.retain(i8*)
 declare i8* @llvm.objc.retainAutoreleasedReturnValue(i8*)
@@ -25,7 +25,7 @@ declare void @use_alloca(i8**)
 
 declare void @llvm.dbg.value(metadata, metadata, metadata)
 
-declare i8* @llvm.objc.msgSend(i8*, i8*, ...)
+declare i8* @objc_msgSend(i8*, i8*, ...)
 
 
 ; In the presence of allocas, unconditionally remove retain/release pairs only

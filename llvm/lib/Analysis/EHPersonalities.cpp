@@ -8,6 +8,7 @@
 
 #include "llvm/Analysis/EHPersonalities.h"
 #include "llvm/ADT/StringSwitch.h"
+#include "llvm/ADT/Triple.h"
 #include "llvm/IR/CFG.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Function.h"
@@ -19,9 +20,9 @@ using namespace llvm;
 /// See if the given exception handling personality function is one that we
 /// understand.  If so, return a description of it; otherwise return Unknown.
 EHPersonality llvm::classifyEHPersonality(const Value *Pers) {
-  const Function *F =
-      Pers ? dyn_cast<Function>(Pers->stripPointerCasts()) : nullptr;
-  if (!F)
+  const GlobalValue *F =
+      Pers ? dyn_cast<GlobalValue>(Pers->stripPointerCasts()) : nullptr;
+  if (!F || !F->getValueType() || !F->getValueType()->isFunctionTy())
     return EHPersonality::Unknown;
   return StringSwitch<EHPersonality>(F->getName())
       .Case("__gnat_eh_personality", EHPersonality::GNU_Ada)
@@ -39,6 +40,7 @@ EHPersonality llvm::classifyEHPersonality(const Value *Pers) {
       .Case("ProcessCLRException", EHPersonality::CoreCLR)
       .Case("rust_eh_personality", EHPersonality::Rust)
       .Case("__gxx_wasm_personality_v0", EHPersonality::Wasm_CXX)
+      .Case("__xlcxx_personality_v1", EHPersonality::XL_CXX)
       .Default(EHPersonality::Unknown);
 }
 
@@ -57,6 +59,8 @@ StringRef llvm::getEHPersonalityName(EHPersonality Pers) {
   case EHPersonality::CoreCLR:       return "ProcessCLRException";
   case EHPersonality::Rust:          return "rust_eh_personality";
   case EHPersonality::Wasm_CXX:      return "__gxx_wasm_personality_v0";
+  case EHPersonality::XL_CXX:
+    return "__xlcxx_personality_v1";
   case EHPersonality::Unknown:       llvm_unreachable("Unknown EHPersonality!");
   }
 
@@ -64,7 +68,10 @@ StringRef llvm::getEHPersonalityName(EHPersonality Pers) {
 }
 
 EHPersonality llvm::getDefaultEHPersonality(const Triple &T) {
-  return EHPersonality::GNU_C;
+  if (T.isPS5())
+    return EHPersonality::GNU_CXX;
+  else
+    return EHPersonality::GNU_C;
 }
 
 bool llvm::canSimplifyInvokeNoUnwind(const Function *F) {

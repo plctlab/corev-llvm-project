@@ -7,15 +7,60 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/IR/Location.h"
-#include "LocationDetail.h"
+#include "mlir/IR/BuiltinDialect.h"
+#include "mlir/IR/Visitors.h"
 #include "llvm/ADT/SetVector.h"
+#include "llvm/ADT/TypeSwitch.h"
 
 using namespace mlir;
 using namespace mlir::detail;
 
 //===----------------------------------------------------------------------===//
+/// Tablegen Attribute Definitions
+//===----------------------------------------------------------------------===//
+
+#define GET_ATTRDEF_CLASSES
+#include "mlir/IR/BuiltinLocationAttributes.cpp.inc"
+
+//===----------------------------------------------------------------------===//
+// BuiltinDialect
+//===----------------------------------------------------------------------===//
+
+void BuiltinDialect::registerLocationAttributes() {
+  addAttributes<
+#define GET_ATTRDEF_LIST
+#include "mlir/IR/BuiltinLocationAttributes.cpp.inc"
+      >();
+}
+
+//===----------------------------------------------------------------------===//
 // LocationAttr
 //===----------------------------------------------------------------------===//
+
+WalkResult LocationAttr::walk(function_ref<WalkResult(Location)> walkFn) {
+  if (walkFn(*this).wasInterrupted())
+    return WalkResult::interrupt();
+
+  return TypeSwitch<LocationAttr, WalkResult>(*this)
+      .Case([&](CallSiteLoc callLoc) -> WalkResult {
+        if (callLoc.getCallee()->walk(walkFn).wasInterrupted())
+          return WalkResult::interrupt();
+        return callLoc.getCaller()->walk(walkFn);
+      })
+      .Case([&](FusedLoc fusedLoc) -> WalkResult {
+        for (Location subLoc : fusedLoc.getLocations())
+          if (subLoc->walk(walkFn).wasInterrupted())
+            return WalkResult::interrupt();
+        return WalkResult::advance();
+      })
+      .Case([&](NameLoc nameLoc) -> WalkResult {
+        return nameLoc.getChildLoc()->walk(walkFn);
+      })
+      .Case([&](OpaqueLoc opaqueLoc) -> WalkResult {
+        return opaqueLoc.getFallbackLocation()->walk(walkFn);
+      })
+      .Default(WalkResult::advance());
+}
 
 /// Methods for support type inquiry through isa, cast, and dyn_cast.
 bool LocationAttr::classof(Attribute attr) {
@@ -27,11 +72,7 @@ bool LocationAttr::classof(Attribute attr) {
 // CallSiteLoc
 //===----------------------------------------------------------------------===//
 
-Location CallSiteLoc::get(Location callee, Location caller) {
-  return Base::get(callee->getContext(), callee, caller);
-}
-
-Location CallSiteLoc::get(Location name, ArrayRef<Location> frames) {
+CallSiteLoc CallSiteLoc::get(Location name, ArrayRef<Location> frames) {
   assert(!frames.empty() && "required at least 1 call frame");
   Location caller = frames.back();
   for (auto frame : llvm::reverse(frames.drop_back()))
@@ -39,28 +80,19 @@ Location CallSiteLoc::get(Location name, ArrayRef<Location> frames) {
   return CallSiteLoc::get(name, caller);
 }
 
-Location CallSiteLoc::getCallee() const { return getImpl()->callee; }
-
-Location CallSiteLoc::getCaller() const { return getImpl()->caller; }
-
-//===----------------------------------------------------------------------===//
-// FileLineColLoc
-//===----------------------------------------------------------------------===//
-
-Location FileLineColLoc::get(Identifier filename, unsigned line,
-                             unsigned column, MLIRContext *context) {
-  return Base::get(context, filename, line, column);
+void CallSiteLoc::walkImmediateSubElements(
+    function_ref<void(Attribute)> walkAttrsFn,
+    function_ref<void(Type)> walkTypesFn) const {
+  walkAttrsFn(getCallee());
+  walkAttrsFn(getCaller());
 }
 
-Location FileLineColLoc::get(StringRef filename, unsigned line, unsigned column,
-                             MLIRContext *context) {
-  return get(Identifier::get(filename.empty() ? "-" : filename, context), line,
-             column, context);
+Attribute
+CallSiteLoc::replaceImmediateSubElements(ArrayRef<Attribute> replAttrs,
+                                         ArrayRef<Type> replTypes) const {
+  return get(replAttrs[0].cast<LocationAttr>(),
+             replAttrs[1].cast<LocationAttr>());
 }
-
-StringRef FileLineColLoc::getFilename() const { return getImpl()->filename; }
-unsigned FileLineColLoc::getLine() const { return getImpl()->line; }
-unsigned FileLineColLoc::getColumn() const { return getImpl()->column; }
 
 //===----------------------------------------------------------------------===//
 // FusedLoc
@@ -73,7 +105,7 @@ Location FusedLoc::get(ArrayRef<Location> locs, Attribute metadata,
   for (auto loc : locs) {
     // If the location is a fused location we decompose it if it has no
     // metadata or the metadata is the same as the top level metadata.
-    if (auto fusedLoc = loc.dyn_cast<FusedLoc>()) {
+    if (auto fusedLoc = llvm::dyn_cast<FusedLoc>(loc)) {
       if (fusedLoc.getMetadata() == metadata) {
         // UnknownLoc's have already been removed from FusedLocs so we can
         // simply add all of the internal locations.
@@ -88,56 +120,70 @@ Location FusedLoc::get(ArrayRef<Location> locs, Attribute metadata,
   }
   locs = decomposedLocs.getArrayRef();
 
-  // Handle the simple cases of less than two locations.
-  if (locs.empty())
-    return UnknownLoc::get(context);
-  if (locs.size() == 1)
+  // Handle the simple cases of less than two locations. Ensure the metadata (if
+  // provided) is not dropped.
+  if (locs.empty()) {
+    if (!metadata)
+      return UnknownLoc::get(context);
+    // TODO: Investigate ASAN failure when using implicit conversion from
+    // Location to ArrayRef<Location> below.
+    return Base::get(context, ArrayRef<Location>{UnknownLoc::get(context)},
+                     metadata);
+  }
+  if (locs.size() == 1 && !metadata)
     return locs.front();
+
   return Base::get(context, locs, metadata);
 }
 
-ArrayRef<Location> FusedLoc::getLocations() const {
-  return getImpl()->getLocations();
+void FusedLoc::walkImmediateSubElements(
+    function_ref<void(Attribute)> walkAttrsFn,
+    function_ref<void(Type)> walkTypesFn) const {
+  for (Attribute attr : getLocations())
+    walkAttrsFn(attr);
+  walkAttrsFn(getMetadata());
 }
 
-Attribute FusedLoc::getMetadata() const { return getImpl()->metadata; }
+Attribute
+FusedLoc::replaceImmediateSubElements(ArrayRef<Attribute> replAttrs,
+                                      ArrayRef<Type> replTypes) const {
+  SmallVector<Location> newLocs;
+  newLocs.reserve(replAttrs.size() - 1);
+  for (Attribute attr : replAttrs.drop_back())
+    newLocs.push_back(attr.cast<LocationAttr>());
+  return get(getContext(), newLocs, replAttrs.back());
+}
 
 //===----------------------------------------------------------------------===//
 // NameLoc
 //===----------------------------------------------------------------------===//
 
-Location NameLoc::get(Identifier name, Location child) {
-  assert(!child.isa<NameLoc>() &&
-         "a NameLoc cannot be used as a child of another NameLoc");
-  return Base::get(child->getContext(), name, child);
+void NameLoc::walkImmediateSubElements(
+    function_ref<void(Attribute)> walkAttrsFn,
+    function_ref<void(Type)> walkTypesFn) const {
+  walkAttrsFn(getName());
+  walkAttrsFn(getChildLoc());
 }
 
-Location NameLoc::get(Identifier name, MLIRContext *context) {
-  return get(name, UnknownLoc::get(context));
+Attribute NameLoc::replaceImmediateSubElements(ArrayRef<Attribute> replAttrs,
+                                               ArrayRef<Type> replTypes) const {
+  return get(replAttrs[0].cast<StringAttr>(),
+             replAttrs[1].cast<LocationAttr>());
 }
-
-/// Return the name identifier.
-Identifier NameLoc::getName() const { return getImpl()->name; }
-
-/// Return the child location.
-Location NameLoc::getChildLoc() const { return getImpl()->child; }
 
 //===----------------------------------------------------------------------===//
 // OpaqueLoc
 //===----------------------------------------------------------------------===//
 
-Location OpaqueLoc::get(uintptr_t underlyingLocation, TypeID typeID,
-                        Location fallbackLocation) {
-  return Base::get(fallbackLocation->getContext(), underlyingLocation, typeID,
-                   fallbackLocation);
+void OpaqueLoc::walkImmediateSubElements(
+    function_ref<void(Attribute)> walkAttrsFn,
+    function_ref<void(Type)> walkTypesFn) const {
+  walkAttrsFn(getFallbackLocation());
 }
 
-uintptr_t OpaqueLoc::getUnderlyingLocation() const {
-  return Base::getImpl()->underlyingLocation;
-}
-
-TypeID OpaqueLoc::getUnderlyingTypeID() const { return getImpl()->typeID; }
-
-Location OpaqueLoc::getFallbackLocation() const {
-  return Base::getImpl()->fallbackLocation;
+Attribute
+OpaqueLoc::replaceImmediateSubElements(ArrayRef<Attribute> replAttrs,
+                                       ArrayRef<Type> replTypes) const {
+  return get(getUnderlyingLocation(), getUnderlyingTypeID(),
+             replAttrs[0].cast<LocationAttr>());
 }

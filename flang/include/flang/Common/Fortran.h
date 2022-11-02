@@ -67,7 +67,13 @@ enum class RoundingMode : std::uint8_t {
   TiesAwayFromZero, // ROUND=COMPATIBLE, RC - ties round away from zero
 };
 
+// Fortran label. Must be in [1..99999].
+using Label = std::uint64_t;
+
 // Fortran arrays may have up to 15 dimensions (See Fortran 2018 section 5.4.6).
 static constexpr int maxRank{15};
+
+// Fortran names may have up to 63 characters (See Fortran 2018 C601).
+static constexpr int maxNameLen{63};
 } // namespace Fortran::common
 #endif // FORTRAN_COMMON_FORTRAN_H_

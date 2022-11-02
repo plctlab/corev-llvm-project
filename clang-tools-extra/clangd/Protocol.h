@@ -7,7 +7,7 @@
 //===----------------------------------------------------------------------===//
 //
 // This file contains structs based on the LSP specification at
-// https://github.com/Microsoft/language-server-protocol/blob/master/protocol.md
+// https://github.com/Microsoft/language-server-protocol/blob/main/protocol.md
 //
 // This is not meant to be a complete implementation, new interfaces are added
 // when they're needed.
@@ -28,12 +28,18 @@
 #include "support/MemoryTree.h"
 #include "clang/Index/IndexSymbol.h"
 #include "llvm/ADT/Optional.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/raw_ostream.h"
 #include <bitset>
 #include <memory>
 #include <string>
 #include <vector>
+
+// This file is using the LSP syntax for identifier names which is different
+// from the LLVM coding standard. To avoid the clang-tidy warnings, we're
+// disabling one check here.
+// NOLINTBEGIN(readability-identifier-naming)
 
 namespace clang {
 namespace clangd {
@@ -70,6 +76,9 @@ public:
     return llvm::inconvertibleErrorCode();
   }
 };
+
+bool fromJSON(const llvm::json::Value &, SymbolID &, llvm::json::Path);
+llvm::json::Value toJSON(const SymbolID &);
 
 // URI in "file" scheme for a file.
 struct URIForFile {
@@ -261,12 +270,11 @@ enum class TraceLevel {
 bool fromJSON(const llvm::json::Value &E, TraceLevel &Out, llvm::json::Path);
 
 struct NoParams {};
+inline llvm::json::Value toJSON(const NoParams &) { return nullptr; }
 inline bool fromJSON(const llvm::json::Value &, NoParams &, llvm::json::Path) {
   return true;
 }
 using InitializedParams = NoParams;
-using ShutdownParams = NoParams;
-using ExitParams = NoParams;
 
 /// Defines how the host (editor) should sync document changes to the language
 /// server.
@@ -429,9 +437,20 @@ struct ClientCapabilities {
   /// textDocument.signatureHelp
   bool HasSignatureHelp = false;
 
+  /// Client signals that it only supports folding complete lines.
+  /// Client will ignore specified `startCharacter` and `endCharacter`
+  /// properties in a FoldingRange.
+  /// textDocument.foldingRange.lineFoldingOnly
+  bool LineFoldingOnly = false;
+
   /// Client supports processing label offsets instead of a simple label string.
   /// textDocument.signatureHelp.signatureInformation.parameterInformation.labelOffsetSupport
   bool OffsetsInSignatureHelp = false;
+
+  /// The documentation format that should be used for
+  /// textDocument/signatureHelp.
+  /// textDocument.signatureHelp.signatureInformation.documentationFormat
+  MarkupKind SignatureHelpDocumentationFormat = MarkupKind::PlainText;
 
   /// The supported set of CompletionItemKinds for textDocument/completion.
   /// textDocument.completion.completionItemKind.valueSet
@@ -451,9 +470,8 @@ struct ClientCapabilities {
   bool SemanticTokens = false;
   /// Client supports Theia semantic highlighting extension.
   /// https://github.com/microsoft/vscode-languageserver-node/pull/367
-  /// This will be ignored if the client also supports semanticTokens.
+  /// clangd no longer supports this, we detect it just to log a warning.
   /// textDocument.semanticHighlightingCapabilities.semanticHighlighting
-  /// FIXME: drop this support once clients support LSP 3.16 Semantic Tokens.
   bool TheiaSemanticHighlighting = false;
 
   /// Supported encodings for LSP character offsets. (clangd extension).
@@ -476,6 +494,14 @@ struct ClientCapabilities {
   /// This is a clangd extension.
   /// window.implicitWorkDoneProgressCreate
   bool ImplicitProgressCreation = false;
+
+  /// Whether the client claims to cancel stale requests.
+  /// general.staleRequestSupport.cancel
+  bool CancelsStaleRequests = false;
+
+  /// Whether the client implementation supports a refresh request sent from the
+  /// server to the client.
+  bool SemanticTokenRefreshSupport = false;
 };
 bool fromJSON(const llvm::json::Value &, ClientCapabilities &,
               llvm::json::Path);
@@ -543,6 +569,8 @@ struct InitializeParams {
 
   /// The capabilities provided by the client (editor or tool)
   ClientCapabilities capabilities;
+  /// The same data as capabilities, but not parsed (to expose to modules).
+  llvm::json::Object rawCapabilities;
 
   /// The initial trace setting. If omitted trace is disabled ('off').
   llvm::Optional<TraceLevel> trace;
@@ -623,7 +651,7 @@ struct WorkDoneProgressReport {
   ///
   /// The value should be steadily rising. Clients are free to ignore values
   /// that are not following this rule.
-  llvm::Optional<double> percentage;
+  llvm::Optional<unsigned> percentage;
 };
 llvm::json::Value toJSON(const WorkDoneProgressReport &);
 //
@@ -803,6 +831,26 @@ struct DiagnosticRelatedInformation {
 };
 llvm::json::Value toJSON(const DiagnosticRelatedInformation &);
 
+enum DiagnosticTag {
+  /// Unused or unnecessary code.
+  ///
+  /// Clients are allowed to render diagnostics with this tag faded out instead
+  /// of having an error squiggle.
+  Unnecessary = 1,
+  /// Deprecated or obsolete code.
+  ///
+  /// Clients are allowed to rendered diagnostics with this tag strike through.
+  Deprecated = 2,
+};
+llvm::json::Value toJSON(DiagnosticTag Tag);
+
+/// Structure to capture a description for an error code.
+struct CodeDescription {
+  /// An URI to open with more information about the diagnostic error.
+  std::string href;
+};
+llvm::json::Value toJSON(const CodeDescription &);
+
 struct CodeAction;
 struct Diagnostic {
   /// The range at which the message applies.
@@ -815,12 +863,18 @@ struct Diagnostic {
   /// The diagnostic's code. Can be omitted.
   std::string code;
 
+  /// An optional property to describe the error code.
+  llvm::Optional<CodeDescription> codeDescription;
+
   /// A human-readable string describing the source of this
   /// diagnostic, e.g. 'typescript' or 'super lint'.
   std::string source;
 
   /// The diagnostic's message.
   std::string message;
+
+  /// Additional metadata about the diagnostic.
+  llvm::SmallVector<DiagnosticTag, 1> tags;
 
   /// An array of related diagnostic information, e.g. when symbol-names within
   /// a scope collide all definitions can be marked via this property.
@@ -836,6 +890,13 @@ struct Diagnostic {
   /// Only with capability textDocument.publishDiagnostics.codeActionsInline.
   /// (These actions can also be obtained using textDocument/codeAction).
   llvm::Optional<std::vector<CodeAction>> codeActions;
+
+  /// A data entry field that is preserved between a
+  /// `textDocument/publishDiagnostics` notification
+  /// and `textDocument/codeAction` request.
+  /// Mutating users should associate their data with a unique key they can use
+  /// to retrieve later on.
+  llvm::json::Object data;
 };
 llvm::json::Value toJSON(const Diagnostic &);
 
@@ -893,7 +954,7 @@ bool fromJSON(const llvm::json::Value &, CodeActionParams &, llvm::json::Path);
 
 struct WorkspaceEdit {
   /// Holds changes to existing resources.
-  llvm::Optional<std::map<std::string, std::vector<TextEdit>>> changes;
+  std::map<std::string, std::vector<TextEdit>> changes;
 
   /// Note: "documentChanges" is not currently used because currently there is
   /// no support for versioned edits.
@@ -916,26 +977,13 @@ struct TweakArgs {
 bool fromJSON(const llvm::json::Value &, TweakArgs &, llvm::json::Path);
 llvm::json::Value toJSON(const TweakArgs &A);
 
-/// Exact commands are not specified in the protocol so we define the
-/// ones supported by Clangd here. The protocol specifies the command arguments
-/// to be "any[]" but to make this safer and more manageable, each command we
-/// handle maps to a certain llvm::Optional of some struct to contain its
-/// arguments. Different commands could reuse the same llvm::Optional as
-/// arguments but a command that needs different arguments would simply add a
-/// new llvm::Optional and not use any other ones. In practice this means only
-/// one argument type will be parsed and set.
 struct ExecuteCommandParams {
-  // Command to apply fix-its. Uses WorkspaceEdit as argument.
-  const static llvm::StringLiteral CLANGD_APPLY_FIX_COMMAND;
-  // Command to apply the code action. Uses TweakArgs as argument.
-  const static llvm::StringLiteral CLANGD_APPLY_TWEAK;
-
-  /// The command identifier, e.g. CLANGD_APPLY_FIX_COMMAND
+  /// The identifier of the actual command handler.
   std::string command;
 
-  // Arguments
-  llvm::Optional<WorkspaceEdit> workspaceEdit;
-  llvm::Optional<TweakArgs> tweakArgs;
+  // This is `arguments?: []any` in LSP.
+  // All clangd's commands accept a single argument (or none => null).
+  llvm::json::Value argument = nullptr;
 };
 bool fromJSON(const llvm::json::Value &, ExecuteCommandParams &,
               llvm::json::Path);
@@ -995,7 +1043,7 @@ struct DocumentSymbol {
   SymbolKind kind;
 
   /// Indicates if this symbol is deprecated.
-  bool deprecated;
+  bool deprecated = false;
 
   /// The range enclosing this symbol not including leading/trailing whitespace
   /// but everything else like comments. This information is typically used to
@@ -1054,6 +1102,10 @@ struct SymbolDetails {
   std::string USR;
 
   SymbolID ID;
+
+  llvm::Optional<Location> declarationRange;
+
+  llvm::Optional<Location> definitionRange;
 };
 llvm::json::Value toJSON(const SymbolDetails &);
 llvm::raw_ostream &operator<<(llvm::raw_ostream &, const SymbolDetails &);
@@ -1061,8 +1113,13 @@ bool operator==(const SymbolDetails &, const SymbolDetails &);
 
 /// The parameters of a Workspace Symbol Request.
 struct WorkspaceSymbolParams {
-  /// A non-empty query string
+  /// A query string to filter symbols by.
+  /// Clients may send an empty string here to request all the symbols.
   std::string query;
+
+  /// Max results to return, overriding global default. 0 means no limit.
+  /// Clangd extension.
+  llvm::Optional<int> limit;
 };
 bool fromJSON(const llvm::json::Value &, WorkspaceSymbolParams &,
               llvm::json::Path);
@@ -1111,6 +1168,10 @@ bool fromJSON(const llvm::json::Value &, CompletionContext &, llvm::json::Path);
 
 struct CompletionParams : TextDocumentPositionParams {
   CompletionContext context;
+
+  /// Max results to return, overriding global default. 0 means no limit.
+  /// Clangd extension.
+  llvm::Optional<int> limit;
 };
 bool fromJSON(const llvm::json::Value &, CompletionParams &, llvm::json::Path);
 
@@ -1144,7 +1205,7 @@ enum class InsertTextFormat {
   /// typing in one will update others too.
   ///
   /// See also:
-  /// https//github.com/Microsoft/vscode/blob/master/src/vs/editor/contrib/snippet/common/snippet.md
+  /// https://github.com/Microsoft/vscode/blob/main/src/vs/editor/contrib/snippet/snippet.md
   Snippet = 2,
 };
 
@@ -1250,7 +1311,7 @@ struct SignatureInformation {
   std::string label;
 
   /// The documentation of this signature. Optional.
-  std::string documentation;
+  MarkupContent documentation;
 
   /// The parameters of this signature.
   std::vector<ParameterInformation> parameters;
@@ -1327,58 +1388,66 @@ bool fromJSON(const llvm::json::Value &E, TypeHierarchyDirection &Out,
 /// The type hierarchy params is an extension of the
 /// `TextDocumentPositionsParams` with optional properties which can be used to
 /// eagerly resolve the item when requesting from the server.
-struct TypeHierarchyParams : public TextDocumentPositionParams {
+struct TypeHierarchyPrepareParams : public TextDocumentPositionParams {
   /// The hierarchy levels to resolve. `0` indicates no level.
+  /// This is a clangd extension.
   int resolve = 0;
 
   /// The direction of the hierarchy levels to resolve.
+  /// This is a clangd extension.
   TypeHierarchyDirection direction = TypeHierarchyDirection::Parents;
 };
-bool fromJSON(const llvm::json::Value &, TypeHierarchyParams &,
+bool fromJSON(const llvm::json::Value &, TypeHierarchyPrepareParams &,
               llvm::json::Path);
 
 struct TypeHierarchyItem {
-  /// The human readable name of the hierarchy item.
+  /// The name of this item.
   std::string name;
 
-  /// Optional detail for the hierarchy item. It can be, for instance, the
-  /// signature of a function or method.
-  llvm::Optional<std::string> detail;
-
-  /// The kind of the hierarchy item. For instance, class or interface.
+  /// The kind of this item.
   SymbolKind kind;
 
-  /// `true` if the hierarchy item is deprecated. Otherwise, `false`.
-  bool deprecated = false;
+  /// More detail for this item, e.g. the signature of a function.
+  llvm::Optional<std::string> detail;
 
-  /// The URI of the text document where this type hierarchy item belongs to.
+  /// The resource identifier of this item.
   URIForFile uri;
 
-  /// The range enclosing this type hierarchy item not including
-  /// leading/trailing whitespace but everything else like comments. This
-  /// information is typically used to determine if the client's cursor is
-  /// inside the type hierarch item to reveal in the symbol in the UI.
+  /// The range enclosing this symbol not including leading/trailing whitespace
+  /// but everything else, e.g. comments and code.
   Range range;
 
-  /// The range that should be selected and revealed when this type hierarchy
-  /// item is being picked, e.g. the name of a function. Must be contained by
-  /// the `range`.
+  /// The range that should be selected and revealed when this symbol is being
+  /// picked, e.g. the name of a function. Must be contained by the `range`.
   Range selectionRange;
 
-  /// If this type hierarchy item is resolved, it contains the direct parents.
-  /// Could be empty if the item does not have direct parents. If not defined,
-  /// the parents have not been resolved yet.
+  /// Used to resolve a client provided item back.
+  struct ResolveParams {
+    SymbolID symbolID;
+    /// None means parents aren't resolved and empty is no parents.
+    llvm::Optional<std::vector<ResolveParams>> parents;
+  };
+  /// A data entry field that is preserved between a type hierarchy prepare and
+  /// supertypes or subtypes requests. It could also be used to identify the
+  /// type hierarchy in the server, helping improve the performance on resolving
+  /// supertypes and subtypes.
+  ResolveParams data;
+
+  /// `true` if the hierarchy item is deprecated. Otherwise, `false`.
+  /// This is a clangd exntesion.
+  bool deprecated = false;
+
+  /// This is a clangd exntesion.
   llvm::Optional<std::vector<TypeHierarchyItem>> parents;
 
   /// If this type hierarchy item is resolved, it contains the direct children
   /// of the current item. Could be empty if the item does not have any
   /// descendants. If not defined, the children have not been resolved.
+  /// This is a clangd exntesion.
   llvm::Optional<std::vector<TypeHierarchyItem>> children;
-
-  /// An optional 'data' filed, which can be used to identify a type hierarchy
-  /// item in a resolve request.
-  llvm::Optional<std::string> data;
 };
+llvm::json::Value toJSON(const TypeHierarchyItem::ResolveParams &);
+bool fromJSON(const TypeHierarchyItem::ResolveParams &);
 llvm::json::Value toJSON(const TypeHierarchyItem &);
 llvm::raw_ostream &operator<<(llvm::raw_ostream &, const TypeHierarchyItem &);
 bool fromJSON(const llvm::json::Value &, TypeHierarchyItem &, llvm::json::Path);
@@ -1397,8 +1466,175 @@ struct ResolveTypeHierarchyItemParams {
 bool fromJSON(const llvm::json::Value &, ResolveTypeHierarchyItemParams &,
               llvm::json::Path);
 
+enum class SymbolTag { Deprecated = 1 };
+llvm::json::Value toJSON(SymbolTag);
+
+/// The parameter of a `textDocument/prepareCallHierarchy` request.
+struct CallHierarchyPrepareParams : public TextDocumentPositionParams {};
+
+/// Represents programming constructs like functions or constructors
+/// in the context of call hierarchy.
+struct CallHierarchyItem {
+  /// The name of this item.
+  std::string name;
+
+  /// The kind of this item.
+  SymbolKind kind;
+
+  /// Tags for this item.
+  std::vector<SymbolTag> tags;
+
+  /// More detaill for this item, e.g. the signature of a function.
+  std::string detail;
+
+  /// The resource identifier of this item.
+  URIForFile uri;
+
+  /// The range enclosing this symbol not including leading / trailing
+  /// whitespace but everything else, e.g. comments and code.
+  Range range;
+
+  /// The range that should be selected and revealed when this symbol
+  /// is being picked, e.g. the name of a function.
+  /// Must be contained by `Rng`.
+  Range selectionRange;
+
+  /// An optional 'data' field, which can be used to identify a call
+  /// hierarchy item in an incomingCalls or outgoingCalls request.
+  std::string data;
+};
+llvm::json::Value toJSON(const CallHierarchyItem &);
+bool fromJSON(const llvm::json::Value &, CallHierarchyItem &, llvm::json::Path);
+
+/// The parameter of a `callHierarchy/incomingCalls` request.
+struct CallHierarchyIncomingCallsParams {
+  CallHierarchyItem item;
+};
+bool fromJSON(const llvm::json::Value &, CallHierarchyIncomingCallsParams &,
+              llvm::json::Path);
+
+/// Represents an incoming call, e.g. a caller of a method or constructor.
+struct CallHierarchyIncomingCall {
+  /// The item that makes the call.
+  CallHierarchyItem from;
+
+  /// The range at which the calls appear.
+  /// This is relative to the caller denoted by `From`.
+  std::vector<Range> fromRanges;
+};
+llvm::json::Value toJSON(const CallHierarchyIncomingCall &);
+
+/// The parameter of a `callHierarchy/outgoingCalls` request.
+struct CallHierarchyOutgoingCallsParams {
+  CallHierarchyItem item;
+};
+bool fromJSON(const llvm::json::Value &, CallHierarchyOutgoingCallsParams &,
+              llvm::json::Path);
+
+/// Represents an outgoing call, e.g. calling a getter from a method or
+/// a method from a constructor etc.
+struct CallHierarchyOutgoingCall {
+  /// The item that is called.
+  CallHierarchyItem to;
+
+  /// The range at which this item is called.
+  /// This is the range relative to the caller, and not `To`.
+  std::vector<Range> fromRanges;
+};
+llvm::json::Value toJSON(const CallHierarchyOutgoingCall &);
+
+/// A parameter literal used in inlay hint requests.
+struct InlayHintsParams {
+  /// The text document.
+  TextDocumentIdentifier textDocument;
+
+  /// The visible document range for which inlay hints should be computed.
+  ///
+  /// None is a clangd extension, which hints for computing hints on the whole
+  /// file.
+  llvm::Optional<Range> range;
+};
+bool fromJSON(const llvm::json::Value &, InlayHintsParams &, llvm::json::Path);
+
+/// Inlay hint kinds.
+enum class InlayHintKind {
+  /// An inlay hint that for a type annotation.
+  ///
+  /// An example of a type hint is a hint in this position:
+  ///    auto var ^ = expr;
+  /// which shows the deduced type of the variable.
+  Type = 1,
+
+  /// An inlay hint that is for a parameter.
+  ///
+  /// An example of a parameter hint is a hint in this position:
+  ///    func(^arg);
+  /// which shows the name of the corresponding parameter.
+  Parameter = 2,
+
+  /// A hint before an element of an aggregate braced initializer list,
+  /// indicating what it is initializing.
+  ///   Pair{^1, ^2};
+  /// Uses designator syntax, e.g. `.first:`.
+  /// This is a clangd extension.
+  Designator = 3,
+
+  /// Other ideas for hints that are not currently implemented:
+  ///
+  /// * Chaining hints, showing the types of intermediate expressions
+  ///   in a chain of function calls.
+  /// * Hints indicating implicit conversions or implicit constructor calls.
+};
+llvm::json::Value toJSON(const InlayHintKind &);
+
+/// Inlay hint information.
+struct InlayHint {
+  /// The position of this hint.
+  Position position;
+
+  /// The label of this hint. A human readable string or an array of
+  /// InlayHintLabelPart label parts.
+  ///
+  /// *Note* that neither the string nor the label part can be empty.
+  std::string label;
+
+  /// The kind of this hint. Can be omitted in which case the client should fall
+  /// back to a reasonable default.
+  InlayHintKind kind;
+
+  /// Render padding before the hint.
+  ///
+  /// Note: Padding should use the editor's background color, not the
+  /// background color of the hint itself. That means padding can be used
+  /// to visually align/separate an inlay hint.
+  bool paddingLeft = false;
+
+  /// Render padding after the hint.
+  ///
+  /// Note: Padding should use the editor's background color, not the
+  /// background color of the hint itself. That means padding can be used
+  /// to visually align/separate an inlay hint.
+  bool paddingRight = false;
+
+  /// The range of source code to which the hint applies.
+  ///
+  /// For example, a parameter hint may have the argument as its range.
+  /// The range allows clients more flexibility of when/how to display the hint.
+  /// This is an (unserialized) clangd extension.
+  Range range;
+};
+llvm::json::Value toJSON(const InlayHint &);
+bool operator==(const InlayHint &, const InlayHint &);
+bool operator<(const InlayHint &, const InlayHint &);
+llvm::raw_ostream &operator<<(llvm::raw_ostream &, InlayHintKind);
+
+struct ReferenceContext {
+  /// Include the declaration of the current symbol.
+  bool includeDeclaration = false;
+};
+
 struct ReferenceParams : public TextDocumentPositionParams {
-  // For now, no options like context.includeDeclaration are supported.
+  ReferenceContext context;
 };
 bool fromJSON(const llvm::json::Value &, ReferenceParams &, llvm::json::Path);
 
@@ -1486,33 +1722,6 @@ struct SemanticTokensOrDelta {
 };
 llvm::json::Value toJSON(const SemanticTokensOrDelta &);
 
-/// Represents a semantic highlighting information that has to be applied on a
-/// specific line of the text document.
-struct TheiaSemanticHighlightingInformation {
-  /// The line these highlightings belong to.
-  int Line = 0;
-  /// The base64 encoded string of highlighting tokens.
-  std::string Tokens;
-  /// Is the line in an inactive preprocessor branch?
-  /// This is a clangd extension.
-  /// An inactive line can still contain highlighting tokens as well;
-  /// clients should combine line style and token style if possible.
-  bool IsInactive = false;
-};
-bool operator==(const TheiaSemanticHighlightingInformation &Lhs,
-                const TheiaSemanticHighlightingInformation &Rhs);
-llvm::json::Value
-toJSON(const TheiaSemanticHighlightingInformation &Highlighting);
-
-/// Parameters for the semantic highlighting (server-side) push notification.
-struct TheiaSemanticHighlightingParams {
-  /// The textdocument these highlightings belong to.
-  VersionedTextDocumentIdentifier TextDocument;
-  /// The lines of highlightings that should be sent.
-  std::vector<TheiaSemanticHighlightingInformation> Lines;
-};
-llvm::json::Value toJSON(const TheiaSemanticHighlightingParams &Highlighting);
-
 struct SelectionRangeParams {
   /// The text document.
   TextDocumentIdentifier textDocument;
@@ -1584,7 +1793,11 @@ struct FoldingRange {
   unsigned startCharacter;
   unsigned endLine = 0;
   unsigned endCharacter;
-  llvm::Optional<std::string> kind;
+
+  const static llvm::StringLiteral REGION_KIND;
+  const static llvm::StringLiteral COMMENT_KIND;
+  const static llvm::StringLiteral IMPORT_KIND;
+  std::string kind;
 };
 llvm::json::Value toJSON(const FoldingRange &Range);
 
@@ -1609,6 +1822,46 @@ llvm::json::Value toJSON(const FoldingRange &Range);
 ///   }
 llvm::json::Value toJSON(const MemoryTree &MT);
 
+/// Payload for textDocument/ast request.
+/// This request is a clangd extension.
+struct ASTParams {
+  /// The text document.
+  TextDocumentIdentifier textDocument;
+
+  /// The position of the node to be dumped.
+  /// The highest-level node that entirely contains the range will be returned.
+  /// If no range is given, the root translation unit node will be returned.
+  llvm::Optional<Range> range;
+};
+bool fromJSON(const llvm::json::Value &, ASTParams &, llvm::json::Path);
+
+/// Simplified description of a clang AST node.
+/// This is clangd's internal representation of C++ code.
+struct ASTNode {
+  /// The general kind of node, such as "expression"
+  /// Corresponds to the base AST node type such as Expr.
+  std::string role;
+  /// The specific kind of node this is, such as "BinaryOperator".
+  /// This is usually a concrete node class (with Expr etc suffix dropped).
+  /// When there's no hierarchy (e.g. TemplateName), the variant (NameKind).
+  std::string kind;
+  /// Brief additional information, such as "||" for the particular operator.
+  /// The information included depends on the node kind, and may be empty.
+  std::string detail;
+  /// A one-line dump of detailed information about the node.
+  /// This includes role/kind/description information, but is rather cryptic.
+  /// It is similar to the output from `clang -Xclang -ast-dump`.
+  /// May be empty for certain types of nodes.
+  std::string arcana;
+  /// The range of the original source file covered by this node.
+  /// May be missing for implicit nodes, or those created by macro expansion.
+  llvm::Optional<Range> range;
+  /// Nodes nested within this one, such as the operands of a BinaryOperator.
+  std::vector<ASTNode> children;
+};
+llvm::json::Value toJSON(const ASTNode &);
+llvm::raw_ostream &operator<<(llvm::raw_ostream &, const ASTNode &);
+
 } // namespace clangd
 } // namespace clang
 
@@ -1621,5 +1874,7 @@ template <> struct format_provider<clang::clangd::Position> {
   }
 };
 } // namespace llvm
+
+// NOLINTEND(readability-identifier-naming)
 
 #endif

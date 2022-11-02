@@ -1,9 +1,8 @@
 //===--------- Definition of the MemProfiler class --------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -13,11 +12,13 @@
 #ifndef LLVM_TRANSFORMS_INSTRUMENTATION_MEMPROFILER_H
 #define LLVM_TRANSFORMS_INSTRUMENTATION_MEMPROFILER_H
 
-#include "llvm/IR/Function.h"
-#include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
 
 namespace llvm {
+class Function;
+class FunctionPass;
+class Module;
+class ModulePass;
 
 /// Public interface to the memory profiler pass for instrumenting code to
 /// profile memory accesses.
@@ -30,6 +31,7 @@ class MemProfilerPass : public PassInfoMixin<MemProfilerPass> {
 public:
   explicit MemProfilerPass();
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
+  static bool isRequired() { return true; }
 };
 
 /// Public interface to the memory profiler module pass for instrumenting code
@@ -38,6 +40,7 @@ class ModuleMemProfilerPass : public PassInfoMixin<ModuleMemProfilerPass> {
 public:
   explicit ModuleMemProfilerPass();
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM);
+  static bool isRequired() { return true; }
 };
 
 // Insert MemProfiler instrumentation

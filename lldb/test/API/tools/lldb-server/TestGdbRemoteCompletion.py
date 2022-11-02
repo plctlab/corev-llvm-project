@@ -5,7 +5,6 @@ from lldbsuite.test.decorators import *
 from lldbgdbserverutils import *
 
 class GdbRemoteCompletionTestCase(gdbremote_testcase.GdbRemoteTestCaseBase):
-    mydir = TestBase.compute_mydir(__file__)
 
     def init_lldb_server(self):
         self.debug_monitor_exe = get_lldb_server_exe()
@@ -27,14 +26,14 @@ class GdbRemoteCompletionTestCase(gdbremote_testcase.GdbRemoteTestCaseBase):
         self.stub_hostname = "localhost"
         self.port = int(lldbutil.wait_for_file_on_target(self, port_file))
         self.sock = self.create_socket()
+        self._server = Server(self.sock, server)
 
-        self.add_no_ack_remote_stream()
+        self.do_handshake()
 
     def generate_hex_path(self, target):
         return str(os.path.join(self.getBuildDir(), target)).encode().hex()
 
-    @skipIfDarwinEmbedded # <rdar://problem/34539270> lldb-server tests not updated to work on ios etc yet
-    @llgs_test
+    @add_test_categories(["llgs"])
     def test_autocomplete_path(self):
         self.build()
         self.init_lldb_server()

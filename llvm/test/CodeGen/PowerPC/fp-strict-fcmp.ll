@@ -1540,11 +1540,8 @@ define i32 @fcmp_ole_f128(fp128 %a, fp128 %b) #0 {
 ; P9-LABEL: fcmp_ole_f128:
 ; P9:       # %bb.0:
 ; P9-NEXT:    xscmpuqp cr0, v2, v3
-; P9-NEXT:    xscmpuqp cr1, v2, v3
 ; P9-NEXT:    li r3, 1
-; P9-NEXT:    crnor 4*cr5+lt, un, 4*cr1+un
-; P9-NEXT:    crnor 4*cr5+gt, gt, 4*cr1+gt
-; P9-NEXT:    crnand 4*cr5+lt, 4*cr5+gt, 4*cr5+lt
+; P9-NEXT:    cror 4*cr5+lt, un, gt
 ; P9-NEXT:    isel r3, 0, r3, 4*cr5+lt
 ; P9-NEXT:    blr
 ;
@@ -1629,11 +1626,8 @@ define i32 @fcmp_oge_f128(fp128 %a, fp128 %b) #0 {
 ; P9-LABEL: fcmp_oge_f128:
 ; P9:       # %bb.0:
 ; P9-NEXT:    xscmpuqp cr0, v2, v3
-; P9-NEXT:    xscmpuqp cr1, v2, v3
 ; P9-NEXT:    li r3, 1
-; P9-NEXT:    crnor 4*cr5+lt, un, 4*cr1+un
-; P9-NEXT:    crnor 4*cr5+gt, lt, 4*cr1+lt
-; P9-NEXT:    crnand 4*cr5+lt, 4*cr5+gt, 4*cr5+lt
+; P9-NEXT:    cror 4*cr5+lt, un, lt
 ; P9-NEXT:    isel r3, 0, r3, 4*cr5+lt
 ; P9-NEXT:    blr
 ;
@@ -1701,36 +1695,32 @@ define i32 @fcmp_one_f128(fp128 %a, fp128 %b) #0 {
 ; P8:       # %bb.0:
 ; P8-NEXT:    mflr r0
 ; P8-NEXT:    std r0, 16(r1)
-; P8-NEXT:    stdu r1, -160(r1)
-; P8-NEXT:    std r26, 112(r1) # 8-byte Folded Spill
-; P8-NEXT:    std r27, 120(r1) # 8-byte Folded Spill
-; P8-NEXT:    std r28, 128(r1) # 8-byte Folded Spill
-; P8-NEXT:    std r29, 136(r1) # 8-byte Folded Spill
-; P8-NEXT:    mr r29, r5
-; P8-NEXT:    mr r28, r4
-; P8-NEXT:    mr r27, r3
-; P8-NEXT:    std r30, 144(r1) # 8-byte Folded Spill
-; P8-NEXT:    mr r30, r6
+; P8-NEXT:    stdu r1, -176(r1)
+; P8-NEXT:    li r3, 128
+; P8-NEXT:    std r30, 160(r1) # 8-byte Folded Spill
+; P8-NEXT:    stxvd2x v30, r1, r3 # 16-byte Folded Spill
+; P8-NEXT:    li r3, 144
+; P8-NEXT:    vmr v30, v2
+; P8-NEXT:    stxvd2x v31, r1, r3 # 16-byte Folded Spill
+; P8-NEXT:    vmr v31, v3
 ; P8-NEXT:    bl __unordkf2
 ; P8-NEXT:    nop
+; P8-NEXT:    vmr v2, v30
 ; P8-NEXT:    cntlzw r3, r3
-; P8-NEXT:    mr r4, r28
-; P8-NEXT:    mr r5, r29
-; P8-NEXT:    mr r6, r30
-; P8-NEXT:    srwi r26, r3, 5
-; P8-NEXT:    mr r3, r27
+; P8-NEXT:    vmr v3, v31
+; P8-NEXT:    srwi r30, r3, 5
 ; P8-NEXT:    bl __eqkf2
 ; P8-NEXT:    nop
 ; P8-NEXT:    cntlzw r3, r3
-; P8-NEXT:    ld r30, 144(r1) # 8-byte Folded Reload
-; P8-NEXT:    ld r29, 136(r1) # 8-byte Folded Reload
-; P8-NEXT:    ld r28, 128(r1) # 8-byte Folded Reload
-; P8-NEXT:    ld r27, 120(r1) # 8-byte Folded Reload
+; P8-NEXT:    li r4, 144
 ; P8-NEXT:    srwi r3, r3, 5
+; P8-NEXT:    lxvd2x v31, r1, r4 # 16-byte Folded Reload
+; P8-NEXT:    li r4, 128
 ; P8-NEXT:    xori r3, r3, 1
-; P8-NEXT:    and r3, r26, r3
-; P8-NEXT:    ld r26, 112(r1) # 8-byte Folded Reload
-; P8-NEXT:    addi r1, r1, 160
+; P8-NEXT:    lxvd2x v30, r1, r4 # 16-byte Folded Reload
+; P8-NEXT:    and r3, r30, r3
+; P8-NEXT:    ld r30, 160(r1) # 8-byte Folded Reload
+; P8-NEXT:    addi r1, r1, 176
 ; P8-NEXT:    ld r0, 16(r1)
 ; P8-NEXT:    mtlr r0
 ; P8-NEXT:    blr
@@ -1738,11 +1728,8 @@ define i32 @fcmp_one_f128(fp128 %a, fp128 %b) #0 {
 ; P9-LABEL: fcmp_one_f128:
 ; P9:       # %bb.0:
 ; P9-NEXT:    xscmpuqp cr0, v2, v3
-; P9-NEXT:    xscmpuqp cr1, v2, v3
 ; P9-NEXT:    li r3, 1
-; P9-NEXT:    crnor 4*cr5+lt, un, 4*cr1+un
-; P9-NEXT:    crnor 4*cr5+gt, eq, 4*cr1+eq
-; P9-NEXT:    crnand 4*cr5+lt, 4*cr5+gt, 4*cr5+lt
+; P9-NEXT:    cror 4*cr5+lt, un, eq
 ; P9-NEXT:    isel r3, 0, r3, 4*cr5+lt
 ; P9-NEXT:    blr
 ;
@@ -1959,36 +1946,32 @@ define i32 @fcmp_ueq_f128(fp128 %a, fp128 %b) #0 {
 ; P8:       # %bb.0:
 ; P8-NEXT:    mflr r0
 ; P8-NEXT:    std r0, 16(r1)
-; P8-NEXT:    stdu r1, -160(r1)
-; P8-NEXT:    std r26, 112(r1) # 8-byte Folded Spill
-; P8-NEXT:    std r27, 120(r1) # 8-byte Folded Spill
-; P8-NEXT:    std r28, 128(r1) # 8-byte Folded Spill
-; P8-NEXT:    std r29, 136(r1) # 8-byte Folded Spill
-; P8-NEXT:    mr r29, r5
-; P8-NEXT:    mr r28, r4
-; P8-NEXT:    mr r27, r3
-; P8-NEXT:    std r30, 144(r1) # 8-byte Folded Spill
-; P8-NEXT:    mr r30, r6
+; P8-NEXT:    stdu r1, -176(r1)
+; P8-NEXT:    li r3, 128
+; P8-NEXT:    std r30, 160(r1) # 8-byte Folded Spill
+; P8-NEXT:    stxvd2x v30, r1, r3 # 16-byte Folded Spill
+; P8-NEXT:    li r3, 144
+; P8-NEXT:    vmr v30, v2
+; P8-NEXT:    stxvd2x v31, r1, r3 # 16-byte Folded Spill
+; P8-NEXT:    vmr v31, v3
 ; P8-NEXT:    bl __eqkf2
 ; P8-NEXT:    nop
+; P8-NEXT:    vmr v2, v30
 ; P8-NEXT:    cntlzw r3, r3
-; P8-NEXT:    mr r4, r28
-; P8-NEXT:    mr r5, r29
-; P8-NEXT:    mr r6, r30
-; P8-NEXT:    srwi r26, r3, 5
-; P8-NEXT:    mr r3, r27
+; P8-NEXT:    vmr v3, v31
+; P8-NEXT:    srwi r30, r3, 5
 ; P8-NEXT:    bl __unordkf2
 ; P8-NEXT:    nop
 ; P8-NEXT:    cntlzw r3, r3
-; P8-NEXT:    ld r30, 144(r1) # 8-byte Folded Reload
-; P8-NEXT:    ld r29, 136(r1) # 8-byte Folded Reload
-; P8-NEXT:    ld r28, 128(r1) # 8-byte Folded Reload
-; P8-NEXT:    ld r27, 120(r1) # 8-byte Folded Reload
+; P8-NEXT:    li r4, 144
 ; P8-NEXT:    srwi r3, r3, 5
+; P8-NEXT:    lxvd2x v31, r1, r4 # 16-byte Folded Reload
+; P8-NEXT:    li r4, 128
 ; P8-NEXT:    xori r3, r3, 1
-; P8-NEXT:    or r3, r3, r26
-; P8-NEXT:    ld r26, 112(r1) # 8-byte Folded Reload
-; P8-NEXT:    addi r1, r1, 160
+; P8-NEXT:    lxvd2x v30, r1, r4 # 16-byte Folded Reload
+; P8-NEXT:    or r3, r3, r30
+; P8-NEXT:    ld r30, 160(r1) # 8-byte Folded Reload
+; P8-NEXT:    addi r1, r1, 176
 ; P8-NEXT:    ld r0, 16(r1)
 ; P8-NEXT:    mtlr r0
 ; P8-NEXT:    blr
@@ -2144,11 +2127,8 @@ define i32 @fcmps_ole_f128(fp128 %a, fp128 %b) #0 {
 ; P9-LABEL: fcmps_ole_f128:
 ; P9:       # %bb.0:
 ; P9-NEXT:    xscmpoqp cr0, v2, v3
-; P9-NEXT:    xscmpoqp cr1, v2, v3
 ; P9-NEXT:    li r3, 1
-; P9-NEXT:    crnor 4*cr5+lt, un, 4*cr1+un
-; P9-NEXT:    crnor 4*cr5+gt, gt, 4*cr1+gt
-; P9-NEXT:    crnand 4*cr5+lt, 4*cr5+gt, 4*cr5+lt
+; P9-NEXT:    cror 4*cr5+lt, un, gt
 ; P9-NEXT:    isel r3, 0, r3, 4*cr5+lt
 ; P9-NEXT:    blr
 ;
@@ -2233,11 +2213,8 @@ define i32 @fcmps_oge_f128(fp128 %a, fp128 %b) #0 {
 ; P9-LABEL: fcmps_oge_f128:
 ; P9:       # %bb.0:
 ; P9-NEXT:    xscmpoqp cr0, v2, v3
-; P9-NEXT:    xscmpoqp cr1, v2, v3
 ; P9-NEXT:    li r3, 1
-; P9-NEXT:    crnor 4*cr5+lt, un, 4*cr1+un
-; P9-NEXT:    crnor 4*cr5+gt, lt, 4*cr1+lt
-; P9-NEXT:    crnand 4*cr5+lt, 4*cr5+gt, 4*cr5+lt
+; P9-NEXT:    cror 4*cr5+lt, un, lt
 ; P9-NEXT:    isel r3, 0, r3, 4*cr5+lt
 ; P9-NEXT:    blr
 ;
@@ -2305,36 +2282,32 @@ define i32 @fcmps_one_f128(fp128 %a, fp128 %b) #0 {
 ; P8:       # %bb.0:
 ; P8-NEXT:    mflr r0
 ; P8-NEXT:    std r0, 16(r1)
-; P8-NEXT:    stdu r1, -160(r1)
-; P8-NEXT:    std r26, 112(r1) # 8-byte Folded Spill
-; P8-NEXT:    std r27, 120(r1) # 8-byte Folded Spill
-; P8-NEXT:    std r28, 128(r1) # 8-byte Folded Spill
-; P8-NEXT:    std r29, 136(r1) # 8-byte Folded Spill
-; P8-NEXT:    mr r29, r5
-; P8-NEXT:    mr r28, r4
-; P8-NEXT:    mr r27, r3
-; P8-NEXT:    std r30, 144(r1) # 8-byte Folded Spill
-; P8-NEXT:    mr r30, r6
+; P8-NEXT:    stdu r1, -176(r1)
+; P8-NEXT:    li r3, 128
+; P8-NEXT:    std r30, 160(r1) # 8-byte Folded Spill
+; P8-NEXT:    stxvd2x v30, r1, r3 # 16-byte Folded Spill
+; P8-NEXT:    li r3, 144
+; P8-NEXT:    vmr v30, v2
+; P8-NEXT:    stxvd2x v31, r1, r3 # 16-byte Folded Spill
+; P8-NEXT:    vmr v31, v3
 ; P8-NEXT:    bl __unordkf2
 ; P8-NEXT:    nop
+; P8-NEXT:    vmr v2, v30
 ; P8-NEXT:    cntlzw r3, r3
-; P8-NEXT:    mr r4, r28
-; P8-NEXT:    mr r5, r29
-; P8-NEXT:    mr r6, r30
-; P8-NEXT:    srwi r26, r3, 5
-; P8-NEXT:    mr r3, r27
+; P8-NEXT:    vmr v3, v31
+; P8-NEXT:    srwi r30, r3, 5
 ; P8-NEXT:    bl __eqkf2
 ; P8-NEXT:    nop
 ; P8-NEXT:    cntlzw r3, r3
-; P8-NEXT:    ld r30, 144(r1) # 8-byte Folded Reload
-; P8-NEXT:    ld r29, 136(r1) # 8-byte Folded Reload
-; P8-NEXT:    ld r28, 128(r1) # 8-byte Folded Reload
-; P8-NEXT:    ld r27, 120(r1) # 8-byte Folded Reload
+; P8-NEXT:    li r4, 144
 ; P8-NEXT:    srwi r3, r3, 5
+; P8-NEXT:    lxvd2x v31, r1, r4 # 16-byte Folded Reload
+; P8-NEXT:    li r4, 128
 ; P8-NEXT:    xori r3, r3, 1
-; P8-NEXT:    and r3, r26, r3
-; P8-NEXT:    ld r26, 112(r1) # 8-byte Folded Reload
-; P8-NEXT:    addi r1, r1, 160
+; P8-NEXT:    lxvd2x v30, r1, r4 # 16-byte Folded Reload
+; P8-NEXT:    and r3, r30, r3
+; P8-NEXT:    ld r30, 160(r1) # 8-byte Folded Reload
+; P8-NEXT:    addi r1, r1, 176
 ; P8-NEXT:    ld r0, 16(r1)
 ; P8-NEXT:    mtlr r0
 ; P8-NEXT:    blr
@@ -2342,11 +2315,8 @@ define i32 @fcmps_one_f128(fp128 %a, fp128 %b) #0 {
 ; P9-LABEL: fcmps_one_f128:
 ; P9:       # %bb.0:
 ; P9-NEXT:    xscmpoqp cr0, v2, v3
-; P9-NEXT:    xscmpoqp cr1, v2, v3
 ; P9-NEXT:    li r3, 1
-; P9-NEXT:    crnor 4*cr5+lt, un, 4*cr1+un
-; P9-NEXT:    crnor 4*cr5+gt, eq, 4*cr1+eq
-; P9-NEXT:    crnand 4*cr5+lt, 4*cr5+gt, 4*cr5+lt
+; P9-NEXT:    cror 4*cr5+lt, un, eq
 ; P9-NEXT:    isel r3, 0, r3, 4*cr5+lt
 ; P9-NEXT:    blr
 ;
@@ -2563,36 +2533,32 @@ define i32 @fcmps_ueq_f128(fp128 %a, fp128 %b) #0 {
 ; P8:       # %bb.0:
 ; P8-NEXT:    mflr r0
 ; P8-NEXT:    std r0, 16(r1)
-; P8-NEXT:    stdu r1, -160(r1)
-; P8-NEXT:    std r26, 112(r1) # 8-byte Folded Spill
-; P8-NEXT:    std r27, 120(r1) # 8-byte Folded Spill
-; P8-NEXT:    std r28, 128(r1) # 8-byte Folded Spill
-; P8-NEXT:    std r29, 136(r1) # 8-byte Folded Spill
-; P8-NEXT:    mr r29, r5
-; P8-NEXT:    mr r28, r4
-; P8-NEXT:    mr r27, r3
-; P8-NEXT:    std r30, 144(r1) # 8-byte Folded Spill
-; P8-NEXT:    mr r30, r6
+; P8-NEXT:    stdu r1, -176(r1)
+; P8-NEXT:    li r3, 128
+; P8-NEXT:    std r30, 160(r1) # 8-byte Folded Spill
+; P8-NEXT:    stxvd2x v30, r1, r3 # 16-byte Folded Spill
+; P8-NEXT:    li r3, 144
+; P8-NEXT:    vmr v30, v2
+; P8-NEXT:    stxvd2x v31, r1, r3 # 16-byte Folded Spill
+; P8-NEXT:    vmr v31, v3
 ; P8-NEXT:    bl __eqkf2
 ; P8-NEXT:    nop
+; P8-NEXT:    vmr v2, v30
 ; P8-NEXT:    cntlzw r3, r3
-; P8-NEXT:    mr r4, r28
-; P8-NEXT:    mr r5, r29
-; P8-NEXT:    mr r6, r30
-; P8-NEXT:    srwi r26, r3, 5
-; P8-NEXT:    mr r3, r27
+; P8-NEXT:    vmr v3, v31
+; P8-NEXT:    srwi r30, r3, 5
 ; P8-NEXT:    bl __unordkf2
 ; P8-NEXT:    nop
 ; P8-NEXT:    cntlzw r3, r3
-; P8-NEXT:    ld r30, 144(r1) # 8-byte Folded Reload
-; P8-NEXT:    ld r29, 136(r1) # 8-byte Folded Reload
-; P8-NEXT:    ld r28, 128(r1) # 8-byte Folded Reload
-; P8-NEXT:    ld r27, 120(r1) # 8-byte Folded Reload
+; P8-NEXT:    li r4, 144
 ; P8-NEXT:    srwi r3, r3, 5
+; P8-NEXT:    lxvd2x v31, r1, r4 # 16-byte Folded Reload
+; P8-NEXT:    li r4, 128
 ; P8-NEXT:    xori r3, r3, 1
-; P8-NEXT:    or r3, r3, r26
-; P8-NEXT:    ld r26, 112(r1) # 8-byte Folded Reload
-; P8-NEXT:    addi r1, r1, 160
+; P8-NEXT:    lxvd2x v30, r1, r4 # 16-byte Folded Reload
+; P8-NEXT:    or r3, r3, r30
+; P8-NEXT:    ld r30, 160(r1) # 8-byte Folded Reload
+; P8-NEXT:    addi r1, r1, 176
 ; P8-NEXT:    ld r0, 16(r1)
 ; P8-NEXT:    mtlr r0
 ; P8-NEXT:    blr

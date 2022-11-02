@@ -15,14 +15,14 @@ int printf(const char * _Format, ...);
 size_t strlen(const char *s);
 char *strcpy(char *s1, const char *s2);
 
-// DEF: define {{.*}}void @test1(i8* %msg) #[[A:.*]] {
+// DEF: define {{.*}}void @test1(ptr noundef %msg) #[[A:.*]] {
 void test1(const char *msg) {
   char a[strlen(msg) + 1];
   strcpy(a, msg);
   printf("%s\n", a);
 }
 
-// DEF: define {{.*}}void @test2(i8* %msg) #[[B:.*]] {
+// DEF: define {{.*}}void @test2(ptr noundef %msg) #[[B:.*]] {
 __attribute__((no_stack_protector))
 void test2(const char *msg) {
   char a[strlen(msg) + 1];
@@ -36,7 +36,7 @@ void test2(const char *msg) {
 // SSPREQ: attributes #[[A]] = {{.*}} sspreq
 
 // SAFESTACK-NOSSP: attributes #[[A]] = {{.*}} safestack
-// SAFESTACK-NOSSP-NOT: attributes #[[A]] = {{.*}} ssp
+// SAFESTACK-NOSSP-NOT: ssp
 
 // SAFESTACK-SSP: attributes #[[A]] = {{.*}} safestack ssp{{ }}
 // SAFESTACK-SSPSTRONG: attributes #[[A]] = {{.*}} safestack sspstrong
@@ -46,11 +46,6 @@ void test2(const char *msg) {
 // SSP-NOT: attributes #[[B]] = {{.*}} ssp{{ }}
 // SSPSTRONG-NOT: attributes #[[B]] = {{.*}} sspstrong
 // SSPREQ-NOT: attributes #[[B]] = {{.*}} sspreq
-
-// NOSSP: attributes #[[B]] = {{.*}} nossp
-// SSP: attributes #[[B]] = {{.*}} nossp
-// SSPSTRONG: attributes #[[B]] = {{.*}} nossp
-// SSPREQ: attributes #[[B]] = {{.*}} nossp
 
 // SAFESTACK-SSP: attributes #[[B]] = {{.*}} safestack
 // SAFESTACK-SSP-NOT: attributes #[[B]] = {{.*}} safestack ssp{{ }}

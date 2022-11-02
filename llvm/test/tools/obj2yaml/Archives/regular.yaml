@@ -3,7 +3,10 @@
 ## Check how we dump an empty archive.
 
 # RUN: yaml2obj %s --docnum=1 -o %t.empty.a
-# RUN: obj2yaml %t.empty.a | FileCheck %s --check-prefix=EMPTY
+# RUN: obj2yaml %t.empty.a > %t.stdout.yaml
+# RUN: obj2yaml %t.empty.a -o %t.file.yaml 2>&1 | count 0
+# RUN: FileCheck --input-file=%t.stdout.yaml %s --check-prefix=EMPTY
+# RUN: diff %t.stdout.yaml %t.file.yaml
 
 # EMPTY:      --- !Arch
 # EMPTY-NEXT: Members: []
@@ -36,7 +39,7 @@ Members: []
 # MULTIPLE-NEXT:     AccessMode:   '987'
 # MULTIPLE-NEXT:     Size:         '7'
 # MULTIPLE-NEXT:     Content:      2063636363200A
-# MULTIPLE-NEXT:     PaddingByte:  0x0A
+# MULTIPLE-NEXT:     PaddingByte:  0xA
 # MULTIPLE-NEXT:   - LastModified: ''
 # MULTIPLE-NEXT:     UID:          ''
 # MULTIPLE-NEXT:     GID:          ''
@@ -156,5 +159,5 @@ Members:
 # PADDING-BYTE-NEXT: Members:
 # PADDING-BYTE-NEXT:   - Size:        '1'
 # PADDING-BYTE-NEXT:     Content:     '61'
-# PADDING-BYTE-NEXT:     PaddingByte: 0x0A
+# PADDING-BYTE-NEXT:     PaddingByte: 0xA
 # PADDING-BYTE-NEXT: ...

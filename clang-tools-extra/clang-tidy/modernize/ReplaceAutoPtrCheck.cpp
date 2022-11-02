@@ -41,7 +41,8 @@ ReplaceAutoPtrCheck::ReplaceAutoPtrCheck(StringRef Name,
                                          ClangTidyContext *Context)
     : ClangTidyCheck(Name, Context),
       Inserter(Options.getLocalOrGlobal("IncludeStyle",
-                                        utils::IncludeSorter::IS_LLVM)) {}
+                                        utils::IncludeSorter::IS_LLVM),
+               areDiagsSelfContained()) {}
 
 void ReplaceAutoPtrCheck::storeOptions(ClangTidyOptions::OptionMap &Opts) {
   Options.store(Opts, "IncludeStyle", Inserter.getStyle());
@@ -88,7 +89,7 @@ void ReplaceAutoPtrCheck::registerMatchers(MatchFinder *Finder) {
                           hasArgument(1, MovableArgumentMatcher)),
       this);
   Finder->addMatcher(
-      traverse(ast_type_traits::TK_AsIs,
+      traverse(TK_AsIs,
                cxxConstructExpr(hasType(AutoPtrType), argumentCountIs(1),
                                 hasArgument(0, MovableArgumentMatcher))),
       this);

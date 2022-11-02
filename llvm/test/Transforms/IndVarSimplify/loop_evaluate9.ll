@@ -1,4 +1,4 @@
-; RUN: opt < %s -indvars -S | FileCheck %s
+; RUN: opt < %s -passes=indvars -S | FileCheck %s
 ; PR4477
 ; Indvars should compute the exit values in loop.
 ;
@@ -72,13 +72,13 @@ return:		; preds = %cc70a02__complex_multiplication.170.exit
 	ret void
 }
 
-declare fastcc void @cc70a02__complex_integers__complex.164(%struct.cc70a02__complex_integers__complex_type* noalias nocapture sret, i8 signext, i8 signext) nounwind
+declare fastcc void @cc70a02__complex_integers__complex.164(%struct.cc70a02__complex_integers__complex_type* noalias nocapture sret(%struct.cc70a02__complex_integers__complex_type), i8 signext, i8 signext) nounwind
 
-declare fastcc void @cc70a02__complex_integers__Osubtract.149(%struct.cc70a02__complex_integers__complex_type* noalias sret, %struct.cc70a02__complex_integers__complex_type* byval align 4)
+declare fastcc void @cc70a02__complex_integers__Osubtract.149(%struct.cc70a02__complex_integers__complex_type* noalias sret(%struct.cc70a02__complex_integers__complex_type), %struct.cc70a02__complex_integers__complex_type* byval(%struct.cc70a02__complex_integers__complex_type) align 4)
 
-declare fastcc void @cc70a02__complex_integers__Oadd.153(%struct.cc70a02__complex_integers__complex_type* noalias sret, %struct.cc70a02__complex_integers__complex_type* byval align 4, %struct.cc70a02__complex_integers__complex_type* byval align 4)
+declare fastcc void @cc70a02__complex_integers__Oadd.153(%struct.cc70a02__complex_integers__complex_type* noalias sret(%struct.cc70a02__complex_integers__complex_type), %struct.cc70a02__complex_integers__complex_type* byval(%struct.cc70a02__complex_integers__complex_type) align 4, %struct.cc70a02__complex_integers__complex_type* byval(%struct.cc70a02__complex_integers__complex_type) align 4)
 
-declare fastcc void @cc70a02__complex_multiplication.170(%struct.cc70a02__complex_integers__complex_type* noalias sret, %struct.cc70a02__complex_integers__complex_type* byval align 4)
+declare fastcc void @cc70a02__complex_multiplication.170(%struct.cc70a02__complex_integers__complex_type* noalias sret(%struct.cc70a02__complex_integers__complex_type), %struct.cc70a02__complex_integers__complex_type* byval(%struct.cc70a02__complex_integers__complex_type) align 4)
 
 declare void @__gnat_rcheck_12(i8*, i32) noreturn
 

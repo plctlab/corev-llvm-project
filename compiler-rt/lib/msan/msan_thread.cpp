@@ -37,8 +37,9 @@ void MsanThread::ClearShadowForThreadStackAndTLS() {
     __msan_unpoison((void *)tls_begin_, tls_end_ - tls_begin_);
   DTLS *dtls = DTLS_Get();
   CHECK_NE(dtls, 0);
-  for (uptr i = 0; i < dtls->dtv_size; ++i)
-    __msan_unpoison((void *)(dtls->dtv[i].beg), dtls->dtv[i].size);
+  ForEachDVT(dtls, [](const DTLS::DTV &dtv, int id) {
+    __msan_unpoison((void *)(dtv.beg), dtv.size);
+  });
 }
 
 void MsanThread::Init() {
@@ -65,8 +66,6 @@ void MsanThread::Destroy() {
 }
 
 thread_return_t MsanThread::ThreadStart() {
-  Init();
-
   if (!start_routine_) {
     // start_routine_ == 0 if we're on the main thread or on one of the
     // OS X libdispatch worker threads. But nobody is supposed to call

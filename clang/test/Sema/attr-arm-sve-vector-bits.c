@@ -1,8 +1,8 @@
-// RUN: %clang_cc1 -triple aarch64-none-linux-gnu -target-feature +sve -target-feature +bf16 -ffreestanding -fsyntax-only -verify -msve-vector-bits=128 -fallow-half-arguments-and-returns %s
-// RUN: %clang_cc1 -triple aarch64-none-linux-gnu -target-feature +sve -target-feature +bf16 -ffreestanding -fsyntax-only -verify -msve-vector-bits=256 -fallow-half-arguments-and-returns %s
-// RUN: %clang_cc1 -triple aarch64-none-linux-gnu -target-feature +sve -target-feature +bf16 -ffreestanding -fsyntax-only -verify -msve-vector-bits=512 -fallow-half-arguments-and-returns %s
-// RUN: %clang_cc1 -triple aarch64-none-linux-gnu -target-feature +sve -target-feature +bf16 -ffreestanding -fsyntax-only -verify -msve-vector-bits=1024 -fallow-half-arguments-and-returns %s
-// RUN: %clang_cc1 -triple aarch64-none-linux-gnu -target-feature +sve -target-feature +bf16 -ffreestanding -fsyntax-only -verify -msve-vector-bits=2048 -fallow-half-arguments-and-returns %s
+// RUN: %clang_cc1 -triple aarch64-none-linux-gnu -target-feature +sve -target-feature +bf16 -ffreestanding -fsyntax-only -verify -mvscale-min=1 -mvscale-max=1 %s
+// RUN: %clang_cc1 -triple aarch64-none-linux-gnu -target-feature +sve -target-feature +bf16 -ffreestanding -fsyntax-only -verify -mvscale-min=2 -mvscale-max=2 %s
+// RUN: %clang_cc1 -triple aarch64-none-linux-gnu -target-feature +sve -target-feature +bf16 -ffreestanding -fsyntax-only -verify -mvscale-min=4 -mvscale-max=4 %s
+// RUN: %clang_cc1 -triple aarch64-none-linux-gnu -target-feature +sve -target-feature +bf16 -ffreestanding -fsyntax-only -verify -mvscale-min=8 -mvscale-max=8 %s
+// RUN: %clang_cc1 -triple aarch64-none-linux-gnu -target-feature +sve -target-feature +bf16 -ffreestanding -fsyntax-only -verify -mvscale-min=16 -mvscale-max=16 %s
 
 #include <stdint.h>
 
@@ -165,13 +165,13 @@ void f(int c) {
   gs8 = gs8 == ss8; // expected-error {{cannot combine GNU and SVE vectors in expression, result is ambiguous}}
   gs8 = gs8 == fs8; // expected-error {{cannot combine GNU and SVE vectors in expression, result is ambiguous}}
 
-  ss8 = ss8 & fs8; // expected-error {{invalid operands to binary expression}}
-  ss8 = ss8 & gs8; // expected-error {{invalid operands to binary expression}}
+  ss8 = ss8 & fs8; // expected-error {{cannot combine fixed-length and sizeless SVE vectors in expression, result is ambiguous}}
+  ss8 = ss8 & gs8; // expected-error {{cannot combine GNU and SVE vectors in expression, result is ambiguous}}
 
-  fs8 = fs8 & ss8; // expected-error {{invalid operands to binary expression}}
+  fs8 = fs8 & ss8; // expected-error {{cannot combine fixed-length and sizeless SVE vectors in expression, result is ambiguous}}
   fs8 = fs8 & gs8; // expected-error {{cannot combine GNU and SVE vectors in expression, result is ambiguous}}
 
-  gs8 = gs8 & ss8; // expected-error {{invalid operands to binary expression}}
+  gs8 = gs8 & ss8; // expected-error {{cannot combine GNU and SVE vectors in expression, result is ambiguous}}
   gs8 = gs8 & fs8; // expected-error {{cannot combine GNU and SVE vectors in expression, result is ambiguous}}
 }
 
@@ -270,11 +270,7 @@ TEST_CAST_VECTOR(bfloat16)
 TEST_CAST_COMMON(bool)
 
 // Test the implicit conversion only applies to valid types
-fixed_int8_t to_fixed_int8_t__from_svuint8_t(svuint8_t x) { return x; } // expected-error-re {{returning 'svuint8_t' (aka '__SVUint8_t') from a function with incompatible result type 'fixed_int8_t' (vector of {{[0-9]+}} 'signed char' values)}}
 fixed_bool_t to_fixed_bool_t__from_svint32_t(svint32_t x) { return x; } // expected-error-re {{returning 'svint32_t' (aka '__SVInt32_t') from a function with incompatible result type 'fixed_bool_t' (vector of {{[0-9]+}} 'unsigned char' values)}}
-
-svint64_t to_svint64_t__from_gnu_int32_t(gnu_int32_t x) { return x; } // expected-error-re {{returning 'gnu_int32_t' (vector of {{[0-9]+}} 'int32_t' values) from a function with incompatible result type 'svint64_t' (aka '__SVInt64_t')}}
-gnu_int32_t from_svint64_t__to_gnu_int32_t(svint64_t x) { return x; } // expected-error-re {{returning 'svint64_t' (aka '__SVInt64_t') from a function with incompatible result type 'gnu_int32_t' (vector of {{[0-9]+}} 'int32_t' values)}}
 
 // Test implicit conversion between SVE and GNU vector is invalid when
 // __ARM_FEATURE_SVE_BITS != N

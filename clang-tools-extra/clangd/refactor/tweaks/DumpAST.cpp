@@ -31,14 +31,14 @@ namespace {
 ///   `-StringLiteral "foo"
 class DumpAST : public Tweak {
 public:
-  const char *id() const override final;
+  const char *id() const final;
 
   bool prepare(const Selection &Inputs) override {
-    for (auto N = Inputs.ASTSelection.commonAncestor(); N && !Node;
+    for (auto *N = Inputs.ASTSelection.commonAncestor(); N && !Node;
          N = N->Parent)
       if (dumpable(N->ASTNode))
         Node = N->ASTNode;
-    return Node.hasValue();
+    return Node.has_value();
   }
   Expected<Effect> apply(const Selection &Inputs) override;
   std::string title() const override {
@@ -49,13 +49,13 @@ public:
   bool hidden() const override { return true; }
 
 private:
-  static bool dumpable(const ast_type_traits::DynTypedNode &N) {
+  static bool dumpable(const DynTypedNode &N) {
     // Sadly not all node types can be dumped, and there's no API to check.
     // See DynTypedNode::dump().
     return N.get<Decl>() || N.get<Stmt>() || N.get<Type>();
   }
 
-  llvm::Optional<ast_type_traits::DynTypedNode> Node;
+  llvm::Optional<DynTypedNode> Node;
 };
 REGISTER_TWEAK(DumpAST)
 
@@ -84,7 +84,7 @@ llvm::Expected<Tweak::Effect> DumpAST::apply(const Selection &Inputs) {
 ///          *IntegerLiteral 2
 class ShowSelectionTree : public Tweak {
 public:
-  const char *id() const override final;
+  const char *id() const final;
 
   bool prepare(const Selection &Inputs) override { return true; }
   Expected<Effect> apply(const Selection &Inputs) override {
@@ -104,7 +104,7 @@ REGISTER_TWEAK(ShowSelectionTree)
 ///  foo -
 ///  {"containerName":null,"id":"CA2EBE44A1D76D2A","name":"foo","usr":"c:@F@foo#"}
 class DumpSymbol : public Tweak {
-  const char *id() const override final;
+  const char *id() const final;
   bool prepare(const Selection &Inputs) override { return true; }
   Expected<Effect> apply(const Selection &Inputs) override {
     std::string Storage;
@@ -133,7 +133,7 @@ REGISTER_TWEAK(DumpSymbol)
 ///          |  nvsize=4, nvalign=4]
 class DumpRecordLayout : public Tweak {
 public:
-  const char *id() const override final;
+  const char *id() const final;
 
   bool prepare(const Selection &Inputs) override {
     if (auto *Node = Inputs.ASTSelection.commonAncestor())

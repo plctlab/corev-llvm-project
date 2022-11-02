@@ -2,7 +2,7 @@
 ; RUN: llc -mtriple powerpc64le < %s | FileCheck %s
 
 ; Check constrained ops converted to call
-define void @test(double* %cast) {
+define void @test(ptr %cast) {
 ; CHECK-LABEL: test:
 ; CHECK:       # %bb.0: # %root
 ; CHECK-NEXT:    mflr 0
@@ -23,7 +23,7 @@ define void @test(double* %cast) {
 ; CHECK-NEXT:    bl cos
 ; CHECK-NEXT:    nop
 ; CHECK-NEXT:    addi 30, 30, 8
-; CHECK-NEXT:    stfdx 1, 0, 29
+; CHECK-NEXT:    stfd 1, 0(29)
 ; CHECK-NEXT:    cmpldi 30, 2040
 ; CHECK-NEXT:    bne 0, .LBB0_1
 ; CHECK-NEXT:  # %bb.2: # %exit
@@ -41,17 +41,17 @@ exit:
 
 for.body:
   %i = phi i64 [ 0, %root ], [ %next, %for.body ]
-  %idx = getelementptr inbounds double, double* %cast, i64 %i
-  %val = load double, double* %idx
+  %idx = getelementptr inbounds double, ptr %cast, i64 %i
+  %val = load double, ptr %idx
   %cos = tail call nnan ninf nsz arcp double @llvm.experimental.constrained.cos.f64(double %val, metadata !"round.dynamic", metadata !"fpexcept.strict")
-  store double %cos, double* %idx, align 8
+  store double %cos, ptr %idx, align 8
   %next = add nuw nsw i64 %i, 1
   %cond = icmp eq i64 %next, 255
   br i1 %cond, label %exit, label %for.body
 }
 
 ; Check constrained ops converted to native instruction
-define void @test2(double* %cast) {
+define void @test2(ptr %cast) {
 ; CHECK-LABEL: test2:
 ; CHECK:       # %bb.0: # %entry
 ; CHECK-NEXT:    li 4, 255
@@ -62,7 +62,7 @@ define void @test2(double* %cast) {
 ; CHECK-NEXT:    #
 ; CHECK-NEXT:    lfdu 0, 8(3)
 ; CHECK-NEXT:    xssqrtdp 0, 0
-; CHECK-NEXT:    stfdx 0, 0, 3
+; CHECK-NEXT:    stfd 0, 0(3)
 ; CHECK-NEXT:    bdnz .LBB1_1
 ; CHECK-NEXT:  # %bb.2: # %exit
 ; CHECK-NEXT:    blr
@@ -71,10 +71,10 @@ entry:
 
 for.body:
   %i = phi i64 [ 0, %entry ], [ %next, %for.body ]
-  %idx = getelementptr inbounds double, double* %cast, i64 %i
-  %val = load double, double* %idx
+  %idx = getelementptr inbounds double, ptr %cast, i64 %i
+  %val = load double, ptr %idx
   %cos = tail call nnan ninf nsz arcp double @llvm.experimental.constrained.sqrt.f64(double %val, metadata !"round.dynamic", metadata !"fpexcept.strict")
-  store double %cos, double* %idx, align 8
+  store double %cos, ptr %idx, align 8
   %next = add nuw nsw i64 %i, 1
   %cond = icmp eq i64 %next, 255
   br i1 %cond, label %exit, label %for.body

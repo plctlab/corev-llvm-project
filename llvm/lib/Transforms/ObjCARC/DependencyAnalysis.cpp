@@ -22,6 +22,7 @@
 #include "DependencyAnalysis.h"
 #include "ObjCARC.h"
 #include "ProvenanceAnalysis.h"
+#include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/IR/CFG.h"
 
 using namespace llvm;
@@ -47,10 +48,10 @@ bool llvm::objcarc::CanAlterRefCount(const Instruction *Inst, const Value *Ptr,
   const auto *Call = cast<CallBase>(Inst);
 
   // See if AliasAnalysis can help us with the call.
-  FunctionModRefBehavior MRB = PA.getAA()->getModRefBehavior(Call);
-  if (AliasAnalysis::onlyReadsMemory(MRB))
+  MemoryEffects ME = PA.getAA()->getMemoryEffects(Call);
+  if (ME.onlyReadsMemory())
     return false;
-  if (AliasAnalysis::onlyAccessesArgPointees(MRB)) {
+  if (ME.onlyAccessesArgPointees()) {
     for (const Value *Op : Call->args()) {
       if (IsPotentialRetainableObjPtr(Op, *PA.getAA()) && PA.related(Ptr, Op))
         return true;
@@ -93,11 +94,9 @@ bool llvm::objcarc::CanUse(const Instruction *Inst, const Value *Ptr,
       return false;
   } else if (const auto *CS = dyn_cast<CallBase>(Inst)) {
     // For calls, just check the arguments (and not the callee operand).
-    for (auto OI = CS->arg_begin(), OE = CS->arg_end(); OI != OE; ++OI) {
-      const Value *Op = *OI;
+    for (const Value *Op : CS->args())
       if (IsPotentialRetainableObjPtr(Op, *PA.getAA()) && PA.related(Ptr, Op))
         return true;
-    }
     return false;
   } else if (const StoreInst *SI = dyn_cast<StoreInst>(Inst)) {
     // Special-case stores, because we don't care about the stored value, just
@@ -109,9 +108,8 @@ bool llvm::objcarc::CanUse(const Instruction *Inst, const Value *Ptr,
   }
 
   // Check each operand for a match.
-  for (User::const_op_iterator OI = Inst->op_begin(), OE = Inst->op_end();
-       OI != OE; ++OI) {
-    const Value *Op = *OI;
+  for (const Use &U : Inst->operands()) {
+    const Value *Op = U;
     if (IsPotentialRetainableObjPtr(Op, *PA.getAA()) && PA.related(Ptr, Op))
       return true;
   }
@@ -196,9 +194,6 @@ llvm::objcarc::Depends(DependenceKind Flavor, Instruction *Inst,
       return CanInterruptRV(Class);
     }
   }
-
-  case RetainRVDep:
-    return CanInterruptRV(GetBasicARCInstKind(Inst));
   }
 
   llvm_unreachable("Invalid dependence flavor");
@@ -208,15 +203,13 @@ llvm::objcarc::Depends(DependenceKind Flavor, Instruction *Inst,
 /// non-local dependencies on Arg.
 ///
 /// TODO: Cache results?
-void
-llvm::objcarc::FindDependencies(DependenceKind Flavor,
-                                const Value *Arg,
-                                BasicBlock *StartBB, Instruction *StartInst,
-                                SmallPtrSetImpl<Instruction *> &DependingInsts,
-                                SmallPtrSetImpl<const BasicBlock *> &Visited,
-                                ProvenanceAnalysis &PA) {
+static bool findDependencies(DependenceKind Flavor, const Value *Arg,
+                             BasicBlock *StartBB, Instruction *StartInst,
+                             SmallPtrSetImpl<Instruction *> &DependingInsts,
+                             ProvenanceAnalysis &PA) {
   BasicBlock::iterator StartPos = StartInst->getIterator();
 
+  SmallPtrSet<const BasicBlock *, 4> Visited;
   SmallVector<std::pair<BasicBlock *, BasicBlock::iterator>, 4> Worklist;
   Worklist.push_back(std::make_pair(StartBB, StartPos));
   do {
@@ -229,15 +222,14 @@ llvm::objcarc::FindDependencies(DependenceKind Flavor,
       if (LocalStartPos == StartBBBegin) {
         pred_iterator PI(LocalStartBB), PE(LocalStartBB, false);
         if (PI == PE)
-          // If we've reached the function entry, produce a null dependence.
-          DependingInsts.insert(nullptr);
-        else
-          // Add the predecessors to the worklist.
-          do {
-            BasicBlock *PredBB = *PI;
-            if (Visited.insert(PredBB).second)
-              Worklist.push_back(std::make_pair(PredBB, PredBB->end()));
-          } while (++PI != PE);
+          // Return if we've reached the function entry.
+          return false;
+        // Add the predecessors to the worklist.
+        do {
+          BasicBlock *PredBB = *PI;
+          if (Visited.insert(PredBB).second)
+            Worklist.push_back(std::make_pair(PredBB, PredBB->end()));
+        } while (++PI != PE);
         break;
       }
 
@@ -256,9 +248,22 @@ llvm::objcarc::FindDependencies(DependenceKind Flavor,
     if (BB == StartBB)
       continue;
     for (const BasicBlock *Succ : successors(BB))
-      if (Succ != StartBB && !Visited.count(Succ)) {
-        DependingInsts.insert(reinterpret_cast<Instruction *>(-1));
-        return;
-      }
+      if (Succ != StartBB && !Visited.count(Succ))
+        return false;
   }
+
+  return true;
+}
+
+llvm::Instruction *llvm::objcarc::findSingleDependency(DependenceKind Flavor,
+                                                       const Value *Arg,
+                                                       BasicBlock *StartBB,
+                                                       Instruction *StartInst,
+                                                       ProvenanceAnalysis &PA) {
+  SmallPtrSet<Instruction *, 4> DependingInsts;
+
+  if (!findDependencies(Flavor, Arg, StartBB, StartInst, DependingInsts, PA) ||
+      DependingInsts.size() != 1)
+    return nullptr;
+  return *DependingInsts.begin();
 }

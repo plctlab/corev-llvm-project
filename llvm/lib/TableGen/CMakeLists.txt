@@ -3,6 +3,7 @@ add_llvm_component_library(LLVMTableGen
   Error.cpp
   JSONBackend.cpp
   Main.cpp
+  Parser.cpp
   Record.cpp
   SetTheory.cpp
   StringMatcher.cpp
@@ -13,4 +14,7 @@ add_llvm_component_library(LLVMTableGen
 
   ADDITIONAL_HEADER_DIRS
   ${LLVM_MAIN_INCLUDE_DIR}/llvm/TableGen
+
+  LINK_COMPONENTS
+  Support
   )

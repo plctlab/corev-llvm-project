@@ -10,7 +10,13 @@ add_llvm_component_library(LLVMWindowsManifest
   ADDITIONAL_HEADER_DIRS
   ${LLVM_MAIN_INCLUDE_DIR}/llvm/WindowsManifest
   ${Backtrace_INCLUDE_DIRS}
-  LINK_LIBS ${imported_libs})
+
+  LINK_LIBS
+  ${imported_libs}
+
+  LINK_COMPONENTS
+  Support
+  )
 
 # This block is only needed for llvm-config. When we deprecate llvm-config and
 # move to using CMake export, this block can be removed.
@@ -20,7 +26,7 @@ if(LLVM_ENABLE_LIBXML2)
     string(TOUPPER ${CMAKE_BUILD_TYPE} build_type)
     get_property(libxml2_library TARGET LibXml2::LibXml2 PROPERTY LOCATION_${build_type})
   endif()
-  if(NOT zlib_library)
+  if(NOT libxml2_library)
     get_property(libxml2_library TARGET LibXml2::LibXml2 PROPERTY LOCATION)
   endif()
   get_library_name(${libxml2_library} libxml2_library)

@@ -11,8 +11,7 @@
 # Try to detect in the system several dependencies required by the different
 # components of libomptarget. These are the dependencies we have:
 #
-# libelf : required by some targets to handle the ELF files at runtime.
-# libffi : required to launch target kernels given function and argument 
+# libffi : required to launch target kernels given function and argument
 #          pointers.
 # CUDA : required to control offloading to NVIDIA GPUs.
 # VEOS : required to control offloading to NEC Aurora.
@@ -20,45 +19,35 @@
 include (FindPackageHandleStandardArgs)
 
 ################################################################################
-# Looking for libelf...
+# Looking for LLVM...
 ################################################################################
 
-find_path (
-  LIBOMPTARGET_DEP_LIBELF_INCLUDE_DIR
-  NAMES
-    libelf.h
-  PATHS
-    /usr/include
-    /usr/local/include
-    /opt/local/include
-    /sw/include
-    ENV CPATH
-  PATH_SUFFIXES
-    libelf)
+if (OPENMP_STANDALONE_BUILD)
+  # Complete LLVM package is required for building libomptarget
+  # in an out-of-tree mode.
+  find_package(LLVM REQUIRED)
+  message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
+  message(STATUS "Using LLVM in: ${LLVM_DIR}")
+  list(APPEND LIBOMPTARGET_LLVM_INCLUDE_DIRS ${LLVM_INCLUDE_DIRS})
+  list(APPEND CMAKE_MODULE_PATH ${LLVM_CMAKE_DIR})
+  include(AddLLVM)
+  if(TARGET omptarget)
+    message(FATAL_ERROR "CMake target 'omptarget' already exists. "
+                        "Use an LLVM installation that doesn't expose its 'omptarget' target.")
+  endif()
+else()
+  # Note that OPENMP_STANDALONE_BUILD is FALSE, when
+  # openmp is built with -DLLVM_ENABLE_RUNTIMES="openmp" vs
+  # -DLLVM_ENABLE_PROJECTS="openmp", but openmp build
+  # is actually done as a standalone project build with many
+  # LLVM CMake variables propagated to it.
+  list(APPEND LIBOMPTARGET_LLVM_INCLUDE_DIRS
+    ${LLVM_MAIN_INCLUDE_DIR} ${LLVM_BINARY_DIR}/include
+    )
+  message(STATUS
+    "Using LLVM include directories: ${LIBOMPTARGET_LLVM_INCLUDE_DIRS}")
+endif()
 
-find_library (
-  LIBOMPTARGET_DEP_LIBELF_LIBRARIES
-  NAMES
-    elf
-  PATHS
-    /usr/lib
-    /usr/local/lib
-    /opt/local/lib
-    /sw/lib
-    ENV LIBRARY_PATH
-    ENV LD_LIBRARY_PATH)
-    
-set(LIBOMPTARGET_DEP_LIBELF_INCLUDE_DIRS ${LIBOMPTARGET_DEP_LIBELF_INCLUDE_DIR})
-find_package_handle_standard_args(
-  LIBOMPTARGET_DEP_LIBELF 
-  DEFAULT_MSG
-  LIBOMPTARGET_DEP_LIBELF_LIBRARIES
-  LIBOMPTARGET_DEP_LIBELF_INCLUDE_DIRS)
-
-mark_as_advanced(
-  LIBOMPTARGET_DEP_LIBELF_INCLUDE_DIRS 
-  LIBOMPTARGET_DEP_LIBELF_LIBRARIES)
-  
 ################################################################################
 # Looking for libffi...
 ################################################################################
@@ -100,15 +89,15 @@ endif()
 
 set(LIBOMPTARGET_DEP_LIBFFI_INCLUDE_DIRS ${LIBOMPTARGET_DEP_LIBFFI_INCLUDE_DIR})
 find_package_handle_standard_args(
-  LIBOMPTARGET_DEP_LIBFFI 
+  LIBOMPTARGET_DEP_LIBFFI
   DEFAULT_MSG
   LIBOMPTARGET_DEP_LIBFFI_LIBRARIES
   LIBOMPTARGET_DEP_LIBFFI_INCLUDE_DIRS)
 
 mark_as_advanced(
-  LIBOMPTARGET_DEP_LIBFFI_INCLUDE_DIRS 
+  LIBOMPTARGET_DEP_LIBFFI_INCLUDE_DIRS
   LIBOMPTARGET_DEP_LIBFFI_LIBRARIES)
-  
+
 ################################################################################
 # Looking for CUDA...
 ################################################################################
@@ -133,7 +122,7 @@ set(LIBOMPTARGET_DEP_CUDA_FOUND ${CUDA_FOUND})
 set(LIBOMPTARGET_DEP_CUDA_INCLUDE_DIRS ${CUDA_INCLUDE_DIRS})
 
 mark_as_advanced(
-  LIBOMPTARGET_DEP_CUDA_FOUND 
+  LIBOMPTARGET_DEP_CUDA_FOUND
   LIBOMPTARGET_DEP_CUDA_INCLUDE_DIRS)
 
 ################################################################################
@@ -249,3 +238,5 @@ if (NOT LIBOMPTARGET_CUDA_TOOLKIT_ROOT_DIR_PRESET AND
     endif()
   endif()
 endif()
+
+set(OPENMP_PTHREAD_LIB ${LLVM_PTHREAD_LIB})

@@ -10,6 +10,7 @@
 #include "ASTUtils.h"
 #include "clang/AST/CXXInheritance.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
+#include "clang/Basic/CharInfo.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Lex/PPCallbacks.h"
 #include "clang/Lex/Preprocessor.h"
@@ -22,7 +23,7 @@ using namespace clang::ast_matchers;
 
 namespace llvm {
 
-/// Specialisation of DenseMapInfo to allow NamingCheckId objects in DenseMaps
+/// Specialization of DenseMapInfo to allow NamingCheckId objects in DenseMaps
 template <>
 struct DenseMapInfo<clang::tidy::RenamerClangTidyCheck::NamingCheckId> {
   using NamingCheckId = clang::tidy::RenamerClangTidyCheck::NamingCheckId;
@@ -175,7 +176,7 @@ void RenamerClangTidyCheck::addUsage(
   if (!Failure.RawUsageLocs.insert(FixLocation).second)
     return;
 
-  if (!Failure.ShouldFix())
+  if (!Failure.shouldFix())
     return;
 
   if (SourceMgr && SourceMgr->isWrittenInScratchSpace(FixLocation))
@@ -264,7 +265,7 @@ NameLookup findDeclInBases(const CXXRecordDecl &Parent, StringRef DeclName,
     } else
       return NameLookup(llvm::None); // Propagate multiple resolution back up.
   }
-  return NameLookup(Found); // If nullptr, decl wasnt found.
+  return NameLookup(Found); // If nullptr, decl wasn't found.
 }
 
 void RenamerClangTidyCheck::check(const MatchFinder::MatchResult &Result) {
@@ -445,7 +446,7 @@ void RenamerClangTidyCheck::check(const MatchFinder::MatchResult &Result) {
       return;
 
     Optional<FailureInfo> MaybeFailure =
-        GetDeclFailureInfo(Decl, *Result.SourceManager);
+        getDeclFailureInfo(Decl, *Result.SourceManager);
     if (!MaybeFailure)
       return;
     FailureInfo &Info = *MaybeFailure;
@@ -463,6 +464,8 @@ void RenamerClangTidyCheck::check(const MatchFinder::MatchResult &Result) {
         Failure.FixStatus = ShouldFixStatus::ConflictsWithKeyword;
       else if (Ident->hasMacroDefinition())
         Failure.FixStatus = ShouldFixStatus::ConflictsWithMacroDefinition;
+    } else if (!isValidAsciiIdentifier(Info.Fixup)) {
+      Failure.FixStatus = ShouldFixStatus::FixInvalidIdentifier;
     }
 
     Failure.Info = std::move(Info);
@@ -474,7 +477,7 @@ void RenamerClangTidyCheck::checkMacro(SourceManager &SourceMgr,
                                        const Token &MacroNameTok,
                                        const MacroInfo *MI) {
   Optional<FailureInfo> MaybeFailure =
-      GetMacroFailureInfo(MacroNameTok, SourceMgr);
+      getMacroFailureInfo(MacroNameTok, SourceMgr);
   if (!MaybeFailure)
     return;
   FailureInfo &Info = *MaybeFailure;
@@ -482,6 +485,9 @@ void RenamerClangTidyCheck::checkMacro(SourceManager &SourceMgr,
   NamingCheckId ID(MI->getDefinitionLoc(), std::string(Name));
   NamingCheckFailure &Failure = NamingCheckFailures[ID];
   SourceRange Range(MacroNameTok.getLocation(), MacroNameTok.getEndLoc());
+
+  if (!isValidAsciiIdentifier(Info.Fixup))
+    Failure.FixStatus = ShouldFixStatus::FixInvalidIdentifier;
 
   Failure.Info = std::move(Info);
   addUsage(ID, Range);
@@ -503,7 +509,8 @@ void RenamerClangTidyCheck::expandMacro(const Token &MacroNameTok,
 static std::string
 getDiagnosticSuffix(const RenamerClangTidyCheck::ShouldFixStatus FixStatus,
                     const std::string &Fixup) {
-  if (Fixup.empty())
+  if (Fixup.empty() ||
+      FixStatus == RenamerClangTidyCheck::ShouldFixStatus::FixInvalidIdentifier)
     return "; cannot be fixed automatically";
   if (FixStatus == RenamerClangTidyCheck::ShouldFixStatus::ShouldFix)
     return {};
@@ -517,7 +524,6 @@ getDiagnosticSuffix(const RenamerClangTidyCheck::ShouldFixStatus FixStatus,
       RenamerClangTidyCheck::ShouldFixStatus::ConflictsWithMacroDefinition)
     return "; cannot be fixed because '" + Fixup +
            "' would conflict with a macro definition";
-
   llvm_unreachable("invalid ShouldFixStatus");
 }
 
@@ -529,14 +535,14 @@ void RenamerClangTidyCheck::onEndOfTranslationUnit() {
     if (Failure.Info.KindName.empty())
       continue;
 
-    if (Failure.ShouldNotify()) {
-      auto DiagInfo = GetDiagInfo(Decl, Failure);
+    if (Failure.shouldNotify()) {
+      auto DiagInfo = getDiagInfo(Decl, Failure);
       auto Diag = diag(Decl.first,
                        DiagInfo.Text + getDiagnosticSuffix(Failure.FixStatus,
                                                            Failure.Info.Fixup));
       DiagInfo.ApplyArgs(Diag);
 
-      if (Failure.ShouldFix()) {
+      if (Failure.shouldFix()) {
         for (const auto &Loc : Failure.RawUsageLocs) {
           // We assume that the identifier name is made of one token only. This
           // is always the case as we ignore usages in macros that could build

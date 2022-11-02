@@ -4,8 +4,8 @@
 ; RUN: llc < %s -mtriple=x86_64-unknown-unknown -mattr=+avx | FileCheck %s --check-prefixes=AVX,AVX1,AVX1-SLOW
 ; RUN: llc < %s -mtriple=x86_64-unknown-unknown -mattr=+avx,+fast-hops | FileCheck %s --check-prefixes=AVX,AVX1,AVX1-FAST
 ; RUN: llc < %s -mtriple=x86_64-unknown-unknown -mattr=+avx2 | FileCheck %s --check-prefixes=AVX,AVX2
-; RUN: llc < %s -mtriple=x86_64-unknown-unknown -mattr=+avx512f,+avx512bw | FileCheck %s --check-prefixes=AVX512,AVX512BW
-; RUN: llc < %s -mtriple=x86_64-unknown-unknown -mattr=+avx512f,+avx512bw,+avx512vl | FileCheck %s --check-prefixes=AVX512,AVX512VL
+; RUN: llc < %s -mtriple=x86_64-unknown-unknown -mattr=+avx512f,+avx512bw | FileCheck %s --check-prefix=AVX512
+; RUN: llc < %s -mtriple=x86_64-unknown-unknown -mattr=+avx512f,+avx512bw,+avx512vl | FileCheck %s --check-prefix=AVX512
 
 ;
 ; vXi64
@@ -970,7 +970,7 @@ define i8 @test_v2i8(<2 x i8> %a0) {
   ret i8 %1
 }
 
-define i8 @test_v2i8_load(<2 x i8>* %p) {
+define i8 @test_v2i8_load(ptr %p) {
 ; SSE-LABEL: test_v2i8_load:
 ; SSE:       # %bb.0:
 ; SSE-NEXT:    movzwl (%rdi), %eax
@@ -1001,7 +1001,7 @@ define i8 @test_v2i8_load(<2 x i8>* %p) {
 ; AVX512-NEXT:    vmovd %xmm0, %eax
 ; AVX512-NEXT:    # kill: def $al killed $al killed $eax
 ; AVX512-NEXT:    retq
-  %a0 = load <2 x i8>, <2 x i8>* %p
+  %a0 = load <2 x i8>, ptr %p
   %1 = call i8 @llvm.vector.reduce.add.v2i8(<2 x i8> %a0)
   ret i8 %1
 }
@@ -1047,7 +1047,7 @@ define i8 @test_v4i8(<4 x i8> %a0) {
   ret i8 %1
 }
 
-define i8 @test_v4i8_load(<4 x i8>* %p) {
+define i8 @test_v4i8_load(ptr %p) {
 ; SSE-LABEL: test_v4i8_load:
 ; SSE:       # %bb.0:
 ; SSE-NEXT:    movd {{.*#+}} xmm0 = mem[0],zero,zero,zero
@@ -1074,7 +1074,7 @@ define i8 @test_v4i8_load(<4 x i8>* %p) {
 ; AVX512-NEXT:    vmovd %xmm0, %eax
 ; AVX512-NEXT:    # kill: def $al killed $al killed $eax
 ; AVX512-NEXT:    retq
-  %a0 = load <4 x i8>, <4 x i8>* %p
+  %a0 = load <4 x i8>, ptr %p
   %1 = call i8 @llvm.vector.reduce.add.v4i8(<4 x i8> %a0)
   ret i8 %1
 }
@@ -1107,7 +1107,7 @@ define i8 @test_v8i8(<8 x i8> %a0) {
   ret i8 %1
 }
 
-define i8 @test_v8i8_load(<8 x i8>* %p) {
+define i8 @test_v8i8_load(ptr %p) {
 ; SSE-LABEL: test_v8i8_load:
 ; SSE:       # %bb.0:
 ; SSE-NEXT:    movq {{.*#+}} xmm0 = mem[0],zero
@@ -1134,7 +1134,7 @@ define i8 @test_v8i8_load(<8 x i8>* %p) {
 ; AVX512-NEXT:    vmovd %xmm0, %eax
 ; AVX512-NEXT:    # kill: def $al killed $al killed $eax
 ; AVX512-NEXT:    retq
-  %a0 = load <8 x i8>, <8 x i8>* %p
+  %a0 = load <8 x i8>, ptr %p
   %1 = call i8 @llvm.vector.reduce.add.v8i8(<8 x i8> %a0)
   ret i8 %1
 }

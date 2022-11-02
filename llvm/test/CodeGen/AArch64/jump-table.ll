@@ -1,6 +1,7 @@
 ; RUN: llc -no-integrated-as -verify-machineinstrs -o - %s -mtriple=aarch64-none-linux-gnu -aarch64-enable-atomic-cfg-tidy=0 | FileCheck %s
 ; RUN: llc -no-integrated-as -code-model=large -verify-machineinstrs -o - %s -mtriple=aarch64-none-linux-gnu -aarch64-enable-atomic-cfg-tidy=0 | FileCheck --check-prefix=CHECK-LARGE %s
 ; RUN: llc -no-integrated-as -mtriple=aarch64-none-linux-gnu -verify-machineinstrs -relocation-model=pic -aarch64-enable-atomic-cfg-tidy=0 -o - %s | FileCheck --check-prefix=CHECK-PIC %s
+; RUN: llc -no-integrated-as -verify-machineinstrs -o - %s -mtriple=arm64-apple-ios -aarch64-enable-atomic-cfg-tidy=0 | FileCheck --check-prefix=CHECK-IOS %s
 ; RUN: llc -no-integrated-as -code-model=tiny -verify-machineinstrs -o - %s -mtriple=aarch64-none-linux-gnu -aarch64-enable-atomic-cfg-tidy=0 | FileCheck --check-prefix=CHECK-TINY %s
 
 define i32 @test_jumptable(i32 %in) {
@@ -101,22 +102,7 @@ lbl1:
   ret i32 1
 
 lbl2:
-  call void asm sideeffect "1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16", ""()
-  call void asm sideeffect "1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16", ""()
-  call void asm sideeffect "1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16", ""()
-  call void asm sideeffect "1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16", ""()
-  call void asm sideeffect "1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16", ""()
-  call void asm sideeffect "1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16", ""()
-  call void asm sideeffect "1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16", ""()
-  call void asm sideeffect "1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16", ""()
-  call void asm sideeffect "1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16", ""()
-  call void asm sideeffect "1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16", ""()
-  call void asm sideeffect "1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16", ""()
-  call void asm sideeffect "1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16", ""()
-  call void asm sideeffect "1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16", ""()
-  call void asm sideeffect "1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16", ""()
-  call void asm sideeffect "1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16", ""()
-  call void asm sideeffect "1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16", ""()
+  call i64 @llvm.aarch64.space(i32 1024, i64 undef)
   ret i32 2
 
 lbl3:

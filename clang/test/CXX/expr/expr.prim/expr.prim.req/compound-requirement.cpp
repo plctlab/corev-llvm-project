@@ -35,14 +35,14 @@ using r2i2 = r2<A>; // expected-error{{constraints not satisfied for class templ
 using r2i3 = r2<D>;
 using r2i4 = r2<const D>; // expected-error{{constraints not satisfied for class template 'r2' [with T = const D]}}
 
-template<typename T> requires requires { { sizeof(T) }; } // expected-note{{because 'sizeof(T)' would be invalid: invalid application of 'sizeof' to an incomplete type 'void'}} expected-note{{because 'sizeof(T)' would be invalid: invalid application of 'sizeof' to an incomplete type 'nonexistent'}}
+template<typename T> requires requires { { sizeof(T) }; } // expected-note{{because 'sizeof(T)' would be invalid: invalid application of 'sizeof' to an incomplete type 'void'}} expected-note{{because 'sizeof(T)' would be invalid: invalid application of 'sizeof' to an incomplete type 'class nonexistent'}}
 struct r3 {};
 
 using r3i1 = r3<int>;
 using r3i2 = r3<A>;
 using r3i3 = r3<A &>;
 using r3i4 = r3<void>; // expected-error{{constraints not satisfied for class template 'r3' [with T = void]}}
-using r3i4 = r3<class nonexistent>; // expected-error{{constraints not satisfied for class template 'r3' [with T = nonexistent]}}
+using r3i4 = r3<class nonexistent>; // expected-error{{constraints not satisfied for class template 'r3' [with T = class nonexistent]}}
 
 // Non-dependent expressions
 
@@ -79,19 +79,23 @@ constexpr bool is_same_v = false;
 template<typename T>
 constexpr bool is_same_v<T, T> = true;
 
+template<typename T> struct remove_reference { using type = T; };
+template<typename T> struct remove_reference<T&> { using type = T; };
+
 template<typename T, typename U>
 concept Same = is_same_v<T, U>;
 
 template<typename T>
-concept Large = sizeof(T) >= 4; // expected-note{{because 'sizeof(short) >= 4' (2 >= 4) evaluated to false}}
+concept Large = sizeof(typename remove_reference<T>::type) >= 4;
+// expected-note@-1{{because 'sizeof(typename remove_reference<short &>::type) >= 4' (2 >= 4) evaluated to false}}
 
-template<typename T> requires requires (T t) { { t } -> Large; } // expected-note{{because 'decltype(t)' (aka 'short') does not satisfy 'Large':}}
+template<typename T> requires requires (T t) { { t } -> Large; } // expected-note{{because 'short &' does not satisfy 'Large':}}
 struct r7 {};
 
 using r7i1 = r7<int>;
 using r7i2 = r7<short>; // expected-error{{constraints not satisfied for class template 'r7' [with T = short]}}
 
-template<typename T> requires requires (T t) { { t } -> Same<T>; }
+template<typename T> requires requires (T t) { { t } -> Same<T&>; }
 struct r8 {};
 
 using r8i1 = r8<int>;
@@ -99,7 +103,8 @@ using r8i2 = r8<short*>;
 
 // Substitution failure in type constraint
 
-template<typename T> requires requires (T t) { { t } -> Same<typename T::type>; } // expected-note{{because 'Same<expr-type, typename T::type>' would be invalid: type 'int' cannot be used prior to '::' because it has no members}}
+template<typename T> requires requires (T t) { { t } -> Same<typename T::type&>; }
+// expected-note@-1{{because 'Same<expr-type, typename T::type &>' would be invalid: type 'int' cannot be used prior to '::' because it has no members}}
 struct r9 {};
 
 struct M { using type = M; };
@@ -122,6 +127,17 @@ concept IsEven = (T % 2) == 0;
 template<typename T> requires requires (T t) { { t } -> IsEven; } // expected-error{{concept named in type constraint is not a type concept}}
 struct r11 {};
 
+// Value categories
+
+template<auto a = 0>
+requires requires (int b) {
+  { a } -> Same<int>;
+  { b } -> Same<int&>;
+  { 0 } -> Same<int>;
+  { static_cast<int&&>(a) } -> Same<int&&>;
+} void f1() {}
+template void f1<>();
+
 // C++ [expr.prim.req.compound] Example
 namespace std_example {
   template<typename T> concept C1 =
@@ -133,7 +149,7 @@ namespace std_example {
   template<typename T> constexpr bool is_same_v<T, T> = true;
 
   template<typename T, typename U> concept same_as = is_same_v<T, U>;
-  // expected-note@-1 {{because 'is_same_v<int, int *>' evaluated to false}}
+  // expected-note@-1 {{because 'is_same_v<int, typename T2::inner>' evaluated to false}}
 
   static_assert(C1<int>);
   static_assert(C1<int*>);
@@ -157,9 +173,9 @@ namespace std_example {
     int operator *() { return 0; }
   };
   static_assert(C2<T1>);
-  template<C2 T> struct C2_check {}; // expected-note{{because 'int' does not satisfy 'C2'}} expected-note{{because 'std_example::T2' does not satisfy 'C2'}}
+  template<C2 T> struct C2_check {}; // expected-note{{because 'int' does not satisfy 'C2'}} expected-note{{because 'T2' does not satisfy 'C2'}}
   using c2c1 = C2_check<int>; // expected-error{{constraints not satisfied for class template 'C2_check' [with T = int]}}
-  using c2c2 = C2_check<T2>; // expected-error{{constraints not satisfied for class template 'C2_check' [with T = std_example::T2]}}
+  using c2c2 = C2_check<T2>; // expected-error{{constraints not satisfied for class template 'C2_check' [with T = T2]}}
 
   template<typename T>
   void g(T t) noexcept(sizeof(T) == 1) {}

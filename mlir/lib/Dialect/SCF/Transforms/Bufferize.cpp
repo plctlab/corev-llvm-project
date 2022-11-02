@@ -6,50 +6,41 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Transforms/Bufferize.h"
-#include "PassDetail.h"
-#include "mlir/Dialect/SCF/Passes.h"
-#include "mlir/Dialect/SCF/SCF.h"
-#include "mlir/Dialect/SCF/Transforms.h"
-#include "mlir/Dialect/StandardOps/IR/Ops.h"
+#include "mlir/Dialect/SCF/Transforms/Passes.h"
+
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/SCF/Transforms/Transforms.h"
 #include "mlir/Transforms/DialectConversion.h"
+
+namespace mlir {
+#define GEN_PASS_DEF_SCFBUFFERIZE
+#include "mlir/Dialect/SCF/Transforms/Passes.h.inc"
+} // namespace mlir
 
 using namespace mlir;
 using namespace mlir::scf;
 
 namespace {
-struct SCFBufferizePass : public SCFBufferizeBase<SCFBufferizePass> {
-  void runOnFunction() override {
-    auto func = getOperation();
+struct SCFBufferizePass : public impl::SCFBufferizeBase<SCFBufferizePass> {
+  void runOnOperation() override {
+    auto *func = getOperation();
     auto *context = &getContext();
 
-    BufferizeTypeConverter typeConverter;
-    OwningRewritePatternList patterns;
+    bufferization::BufferizeTypeConverter typeConverter;
+    RewritePatternSet patterns(context);
     ConversionTarget target(*context);
 
-    // TODO: Move this to BufferizeTypeConverter's constructor.
-    //
-    // This doesn't currently play well with "finalizing" bufferizations (ones
-    // that expect all materializations to be gone). In particular, there seems
-    // to at least be a double-free in the dialect conversion framework
-    // when this materialization gets inserted and then folded away because
-    // it is marked as illegal.
-    typeConverter.addArgumentMaterialization(
-        [](OpBuilder &builder, RankedTensorType type, ValueRange inputs,
-           Location loc) -> Value {
-          assert(inputs.size() == 1);
-          assert(inputs[0].getType().isa<BaseMemRefType>());
-          return builder.create<TensorLoadOp>(loc, type, inputs[0]);
-        });
-
-    populateBufferizeMaterializationLegality(target);
-    populateSCFStructuralTypeConversionsAndLegality(context, typeConverter,
-                                                    patterns, target);
+    bufferization::populateBufferizeMaterializationLegality(target);
+    populateSCFStructuralTypeConversionsAndLegality(typeConverter, patterns,
+                                                    target);
     if (failed(applyPartialConversion(func, target, std::move(patterns))))
       return signalPassFailure();
   };
 };
-} // end anonymous namespace
+} // namespace
 
 std::unique_ptr<Pass> mlir::createSCFBufferizePass() {
   return std::make_unique<SCFBufferizePass>();

@@ -34,7 +34,7 @@ class Stream;
 class Scalar {
   template<typename T>
   static llvm::APSInt MakeAPSInt(T v) {
-    static_assert(std::is_integral<T>::value, "");
+    static_assert(std::is_integral<T>::value);
     static_assert(sizeof(T) <= sizeof(uint64_t), "Conversion loses precision!");
     return llvm::APSInt(
         llvm::APInt(sizeof(T) * 8, uint64_t(v), std::is_signed<T>::value),
@@ -49,7 +49,7 @@ public:
   };
 
   // Constructors and Destructors
-  Scalar() : m_type(e_void), m_float(0.0f) {}
+  Scalar() : m_float(0.0f) {}
   Scalar(int v) : m_type(e_int), m_integer(MakeAPSInt(v)), m_float(0.0f) {}
   Scalar(unsigned int v)
       : m_type(e_int), m_integer(MakeAPSInt(v)), m_float(0.0f) {}
@@ -69,6 +69,8 @@ public:
   }
   Scalar(llvm::APInt v)
       : m_type(e_int), m_integer(std::move(v), false), m_float(0.0f) {}
+  Scalar(llvm::APSInt v)
+      : m_type(e_int), m_integer(std::move(v)), m_float(0.0f) {}
 
   bool SignExtend(uint32_t bit_pos);
 
@@ -185,7 +187,7 @@ public:
                           size_t byte_size);
 
 protected:
-  Scalar::Type m_type;
+  Scalar::Type m_type = e_void;
   llvm::APSInt m_integer;
   llvm::APFloat m_float;
 

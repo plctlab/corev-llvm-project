@@ -24,6 +24,7 @@
 #endif
 
 extern int indextest_core_main(int argc, const char **argv);
+extern int indextest_perform_shell_execution(const char *command_line);
 
 /******************************************************************************/
 /* Utility functions.                                                         */
@@ -65,7 +66,7 @@ extern char *dirname(char *);
 #endif
 
 /** Return the default parsing options. */
-static unsigned getDefaultParsingOptions() {
+static unsigned getDefaultParsingOptions(void) {
   unsigned options = CXTranslationUnit_DetailedPreprocessingRecord;
 
   if (getenv("CINDEXTEST_EDITING"))
@@ -899,6 +900,8 @@ static void PrintCursor(CXCursor Cursor, const char *CommentSchemaFile) {
       printf(" (mutable)");
     if (clang_CXXMethod_isDefaulted(Cursor))
       printf(" (defaulted)");
+    if (clang_CXXMethod_isDeleted(Cursor))
+      printf(" (deleted)");
     if (clang_CXXMethod_isStatic(Cursor))
       printf(" (static)");
     if (clang_CXXMethod_isVirtual(Cursor))
@@ -907,6 +910,8 @@ static void PrintCursor(CXCursor Cursor, const char *CommentSchemaFile) {
       printf(" (const)");
     if (clang_CXXMethod_isPureVirtual(Cursor))
       printf(" (pure)");
+    if (clang_CXXMethod_isCopyAssignmentOperator(Cursor))
+      printf(" (copy-assignment operator)");
     if (clang_CXXRecord_isAbstract(Cursor))
       printf(" (abstract)");
     if (clang_EnumDecl_isScoped(Cursor))
@@ -999,7 +1004,10 @@ static void PrintCursor(CXCursor Cursor, const char *CommentSchemaFile) {
              clang_getCString(Name), line, column);
       clang_disposeString(Name);
 
-      if (Cursor.kind == CXCursor_FunctionDecl) {
+      if (Cursor.kind == CXCursor_FunctionDecl
+          || Cursor.kind == CXCursor_StructDecl
+          || Cursor.kind == CXCursor_ClassDecl
+          || Cursor.kind == CXCursor_ClassTemplatePartialSpecialization) {
         /* Collect the template parameter kinds from the base template. */
         int NumTemplateArgs = clang_Cursor_getNumTemplateArguments(Cursor);
         int I;
@@ -1539,10 +1547,20 @@ static void PrintNullabilityKind(CXType T, const char *Format) {
 
   const char *nullability = 0;
   switch (N) {
-    case CXTypeNullability_NonNull: nullability = "nonnull"; break;
-    case CXTypeNullability_Nullable: nullability = "nullable"; break;
-    case CXTypeNullability_Unspecified: nullability = "unspecified"; break;
-    case CXTypeNullability_Invalid: break;
+  case CXTypeNullability_NonNull:
+    nullability = "nonnull";
+    break;
+  case CXTypeNullability_Nullable:
+    nullability = "nullable";
+    break;
+  case CXTypeNullability_NullableResult:
+    nullability = "nullable_result";
+    break;
+  case CXTypeNullability_Unspecified:
+    nullability = "unspecified";
+    break;
+  case CXTypeNullability_Invalid:
+    break;
   }
 
   if (nullability) {
@@ -2085,6 +2103,8 @@ int perform_test_reparse_source(int argc, const char **argv, int trials,
   enum CXErrorCode Err;
   int result, i;
   int trial;
+  int execute_after_trial = 0;
+  const char *execute_command = NULL;
   int remap_after_trial = 0;
   char *endptr = 0;
   
@@ -2123,12 +2143,26 @@ int perform_test_reparse_source(int argc, const char **argv, int trials,
   if (checkForErrors(TU) != 0)
     return -1;
 
+  if (getenv("CINDEXTEST_EXECUTE_COMMAND")) {
+    execute_command = getenv("CINDEXTEST_EXECUTE_COMMAND");
+  }
+  if (getenv("CINDEXTEST_EXECUTE_AFTER_TRIAL")) {
+    execute_after_trial =
+        strtol(getenv("CINDEXTEST_EXECUTE_AFTER_TRIAL"), &endptr, 10);
+  }
+
   if (getenv("CINDEXTEST_REMAP_AFTER_TRIAL")) {
     remap_after_trial =
         strtol(getenv("CINDEXTEST_REMAP_AFTER_TRIAL"), &endptr, 10);
   }
 
   for (trial = 0; trial < trials; ++trial) {
+    if (execute_command && trial == execute_after_trial) {
+      result = indextest_perform_shell_execution(execute_command);
+      if (result != 0)
+        return result;
+    }
+
     free_remapped_files(unsaved_files, num_unsaved_files);
     if (parse_remapped_files_with_try(trial, argc, argv, 0,
                                       &unsaved_files, &num_unsaved_files)) {
@@ -3289,7 +3323,7 @@ typedef struct {
   unsigned num_files;
 } ImportedASTFilesData;
 
-static ImportedASTFilesData *importedASTs_create() {
+static ImportedASTFilesData *importedASTs_create(void) {
   ImportedASTFilesData *p;
   p = malloc(sizeof(ImportedASTFilesData));
   assert(p);
@@ -3477,6 +3511,8 @@ static const char *getEntityKindString(CXIdxEntityKind kind) {
   case CXIdxEntity_CXXConversionFunction: return "conversion-func";
   case CXIdxEntity_CXXTypeAlias: return "type-alias";
   case CXIdxEntity_CXXInterface: return "c++-__interface";
+  case CXIdxEntity_CXXConcept:
+    return "concept";
   }
   assert(0 && "Garbage entity kind");
   return 0;
@@ -4380,7 +4416,7 @@ static void print_usr(CXString usr) {
   clang_disposeString(usr);
 }
 
-static void display_usrs() {
+static void display_usrs(void) {
   fprintf(stderr, "-print-usrs options:\n"
         " ObjCCategory <class name> <category name>\n"
         " ObjCClass <class name>\n"

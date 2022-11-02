@@ -52,7 +52,9 @@
 #include "llvm/ADT/Any.h"
 #include "llvm/ADT/FunctionExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringMap.h"
 #include <type_traits>
+#include <vector>
 
 namespace llvm {
 
@@ -80,9 +82,11 @@ public:
   using AfterPassInvalidatedFunc = void(StringRef, const PreservedAnalyses &);
   using BeforeAnalysisFunc = void(StringRef, Any);
   using AfterAnalysisFunc = void(StringRef, Any);
+  using AnalysisInvalidatedFunc = void(StringRef, Any);
+  using AnalysesClearedFunc = void(StringRef);
 
 public:
-  PassInstrumentationCallbacks() {}
+  PassInstrumentationCallbacks() = default;
 
   /// Copying PassInstrumentationCallbacks is not intended.
   PassInstrumentationCallbacks(const PassInstrumentationCallbacks &) = delete;
@@ -103,13 +107,21 @@ public:
     BeforeNonSkippedPassCallbacks.emplace_back(std::move(C));
   }
 
-  template <typename CallableT> void registerAfterPassCallback(CallableT C) {
-    AfterPassCallbacks.emplace_back(std::move(C));
+  template <typename CallableT>
+  void registerAfterPassCallback(CallableT C, bool ToFront = false) {
+    if (ToFront)
+      AfterPassCallbacks.insert(AfterPassCallbacks.begin(), std::move(C));
+    else
+      AfterPassCallbacks.emplace_back(std::move(C));
   }
 
   template <typename CallableT>
-  void registerAfterPassInvalidatedCallback(CallableT C) {
-    AfterPassInvalidatedCallbacks.emplace_back(std::move(C));
+  void registerAfterPassInvalidatedCallback(CallableT C, bool ToFront = false) {
+    if (ToFront)
+      AfterPassInvalidatedCallbacks.insert(
+          AfterPassInvalidatedCallbacks.begin(), std::move(C));
+    else
+      AfterPassInvalidatedCallbacks.emplace_back(std::move(C));
   }
 
   template <typename CallableT>
@@ -118,9 +130,28 @@ public:
   }
 
   template <typename CallableT>
-  void registerAfterAnalysisCallback(CallableT C) {
-    AfterAnalysisCallbacks.emplace_back(std::move(C));
+  void registerAfterAnalysisCallback(CallableT C, bool ToFront = false) {
+    if (ToFront)
+      AfterAnalysisCallbacks.insert(AfterAnalysisCallbacks.begin(),
+                                    std::move(C));
+    else
+      AfterAnalysisCallbacks.emplace_back(std::move(C));
   }
+
+  template <typename CallableT>
+  void registerAnalysisInvalidatedCallback(CallableT C) {
+    AnalysisInvalidatedCallbacks.emplace_back(std::move(C));
+  }
+
+  template <typename CallableT>
+  void registerAnalysesClearedCallback(CallableT C) {
+    AnalysesClearedCallbacks.emplace_back(std::move(C));
+  }
+
+  /// Add a class name to pass name mapping for use by pass instrumentation.
+  void addClassToPassName(StringRef ClassName, StringRef PassName);
+  /// Get the pass name for a given pass class name.
+  StringRef getPassNameForClassName(StringRef ClassName);
 
 private:
   friend class PassInstrumentation;
@@ -146,6 +177,14 @@ private:
   /// These are run on analyses that have been run.
   SmallVector<llvm::unique_function<AfterAnalysisFunc>, 4>
       AfterAnalysisCallbacks;
+  /// These are run on analyses that have been invalidated.
+  SmallVector<llvm::unique_function<AnalysisInvalidatedFunc>, 4>
+      AnalysisInvalidatedCallbacks;
+  /// These are run on analyses that have been cleared.
+  SmallVector<llvm::unique_function<AnalysesClearedFunc>, 4>
+      AnalysesClearedCallbacks;
+
+  StringMap<std::string> ClassToPassName;
 };
 
 /// This class provides instrumentation entry points for the Pass Manager,
@@ -246,6 +285,24 @@ public:
     if (Callbacks)
       for (auto &C : Callbacks->AfterAnalysisCallbacks)
         C(Analysis.name(), llvm::Any(&IR));
+  }
+
+  /// AnalysisInvalidated instrumentation point - takes \p Analysis instance
+  /// that has just been invalidated and constant reference to IR it operated
+  /// on.
+  template <typename IRUnitT, typename PassT>
+  void runAnalysisInvalidated(const PassT &Analysis, const IRUnitT &IR) const {
+    if (Callbacks)
+      for (auto &C : Callbacks->AnalysisInvalidatedCallbacks)
+        C(Analysis.name(), llvm::Any(&IR));
+  }
+
+  /// AnalysesCleared instrumentation point - takes name of IR that analyses
+  /// operated on.
+  void runAnalysesCleared(StringRef Name) const {
+    if (Callbacks)
+      for (auto &C : Callbacks->AnalysesClearedCallbacks)
+        C(Name);
   }
 
   /// Handle invalidation from the pass manager when PassInstrumentation

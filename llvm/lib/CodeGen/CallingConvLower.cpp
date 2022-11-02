@@ -14,16 +14,14 @@
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
-#include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/TargetLowering.h"
 #include "llvm/CodeGen/TargetRegisterInfo.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
-#include "llvm/IR/DataLayout.h"
+#include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/SaveAndRestore.h"
 #include "llvm/Support/raw_ostream.h"
-#include <algorithm>
 
 using namespace llvm;
 
@@ -63,19 +61,18 @@ void CCState::MarkAllocated(MCPhysReg Reg) {
     UsedRegs[*AI / 32] |= 1 << (*AI & 31);
 }
 
+void CCState::MarkUnallocated(MCPhysReg Reg) {
+  for (MCRegAliasIterator AI(Reg, &TRI, true); AI.isValid(); ++AI)
+    UsedRegs[*AI / 32] &= ~(1 << (*AI & 31));
+}
+
 bool CCState::IsShadowAllocatedReg(MCRegister Reg) const {
   if (!isAllocated(Reg))
     return false;
 
-  for (auto const &ValAssign : Locs) {
-    if (ValAssign.isRegLoc()) {
-      for (MCRegAliasIterator AI(ValAssign.getLocReg(), &TRI, true);
-           AI.isValid(); ++AI) {
-        if (*AI == Reg)
-          return false;
-      }
-    }
-  }
+  for (auto const &ValAssign : Locs)
+    if (ValAssign.isRegLoc() && TRI.regsOverlap(ValAssign.getLocReg(), Reg))
+      return false;
   return true;
 }
 

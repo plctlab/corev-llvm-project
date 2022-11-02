@@ -11,11 +11,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Analysis/SliceAnalysis.h"
-#include "mlir/Dialect/Linalg/IR/LinalgOps.h"
-#include "mlir/Dialect/StandardOps/IR/Ops.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/IR/BlockAndValueMapping.h"
-#include "mlir/IR/Function.h"
-#include "mlir/IR/Module.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LLVM.h"
@@ -26,21 +25,21 @@ using namespace mlir;
 /// with name being the function name and a `suffix`.
 static LogicalResult createBackwardSliceFunction(Operation *op,
                                                  StringRef suffix) {
-  FuncOp parentFuncOp = op->getParentOfType<FuncOp>();
+  func::FuncOp parentFuncOp = op->getParentOfType<func::FuncOp>();
   OpBuilder builder(parentFuncOp);
   Location loc = op->getLoc();
   std::string clonedFuncOpName = parentFuncOp.getName().str() + suffix.str();
-  FuncOp clonedFuncOp =
-      builder.create<FuncOp>(loc, clonedFuncOpName, parentFuncOp.getType());
+  func::FuncOp clonedFuncOp = builder.create<func::FuncOp>(
+      loc, clonedFuncOpName, parentFuncOp.getFunctionType());
   BlockAndValueMapping mapper;
   builder.setInsertionPointToEnd(clonedFuncOp.addEntryBlock());
-  for (auto arg : enumerate(parentFuncOp.getArguments()))
+  for (const auto &arg : enumerate(parentFuncOp.getArguments()))
     mapper.map(arg.value(), clonedFuncOp.getArgument(arg.index()));
-  llvm::SetVector<Operation *> slice;
+  SetVector<Operation *> slice;
   getBackwardSlice(op, &slice);
   for (Operation *slicedOp : slice)
     builder.clone(*slicedOp, mapper);
-  builder.create<ReturnOp>(loc);
+  builder.create<func::ReturnOp>(loc);
   return success();
 }
 
@@ -48,6 +47,12 @@ namespace {
 /// Pass to test slice generated from slice analysis.
 struct SliceAnalysisTestPass
     : public PassWrapper<SliceAnalysisTestPass, OperationPass<ModuleOp>> {
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(SliceAnalysisTestPass)
+
+  StringRef getArgument() const final { return "slice-analysis-test"; }
+  StringRef getDescription() const final {
+    return "Test Slice analysis functionality.";
+  }
   void runOnOperation() override;
   SliceAnalysisTestPass() = default;
   SliceAnalysisTestPass(const SliceAnalysisTestPass &) {}
@@ -56,7 +61,7 @@ struct SliceAnalysisTestPass
 
 void SliceAnalysisTestPass::runOnOperation() {
   ModuleOp module = getOperation();
-  auto funcOps = module.getOps<FuncOp>();
+  auto funcOps = module.getOps<func::FuncOp>();
   unsigned opNum = 0;
   for (auto funcOp : funcOps) {
     // TODO: For now this is just looking for Linalg ops. It can be generalized
@@ -66,7 +71,7 @@ void SliceAnalysisTestPass::runOnOperation() {
         return WalkResult::advance();
       std::string append =
           std::string("__backward_slice__") + std::to_string(opNum);
-      createBackwardSliceFunction(op, append);
+      (void)createBackwardSliceFunction(op, append);
       opNum++;
       return WalkResult::advance();
     });
@@ -75,7 +80,6 @@ void SliceAnalysisTestPass::runOnOperation() {
 
 namespace mlir {
 void registerSliceAnalysisTestPass() {
-  PassRegistration<SliceAnalysisTestPass> pass(
-      "slice-analysis-test", "Test Slice analysis functionality.");
+  PassRegistration<SliceAnalysisTestPass>();
 }
 } // namespace mlir

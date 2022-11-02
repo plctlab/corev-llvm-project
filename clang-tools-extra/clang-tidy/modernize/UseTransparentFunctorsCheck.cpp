@@ -64,7 +64,7 @@ void UseTransparentFunctorsCheck::registerMatchers(MatchFinder *Finder) {
                      this);
 }
 
-static const StringRef Message = "prefer transparent functors '%0'";
+static const StringRef Message = "prefer transparent functors '%0<>'";
 
 template <typename T> static T getInnerTypeLocAs(TypeLoc Loc) {
   T Result;
@@ -81,8 +81,7 @@ void UseTransparentFunctorsCheck::check(
       Result.Nodes.getNodeAs<ClassTemplateSpecializationDecl>("FunctorClass");
   if (const auto *FuncInst =
           Result.Nodes.getNodeAs<CXXConstructExpr>("FuncInst")) {
-    diag(FuncInst->getBeginLoc(), Message)
-        << (FuncClass->getName() + "<>").str();
+    diag(FuncInst->getBeginLoc(), Message) << FuncClass->getName();
     return;
   }
 
@@ -97,8 +96,9 @@ void UseTransparentFunctorsCheck::check(
   unsigned ArgNum = 0;
   const auto *FunctorParentType =
       FunctorParentLoc.getType()->castAs<TemplateSpecializationType>();
-  for (; ArgNum < FunctorParentType->getNumArgs(); ++ArgNum) {
-    const TemplateArgument &Arg = FunctorParentType->getArg(ArgNum);
+  for (; ArgNum < FunctorParentType->template_arguments().size(); ++ArgNum) {
+    const TemplateArgument &Arg =
+        FunctorParentType->template_arguments()[ArgNum];
     if (Arg.getKind() != TemplateArgument::Type)
       continue;
     QualType ParentArgType = Arg.getAsType();
@@ -108,7 +108,7 @@ void UseTransparentFunctorsCheck::check(
       break;
   }
   // Functor is a default template argument.
-  if (ArgNum == FunctorParentType->getNumArgs())
+  if (ArgNum == FunctorParentType->template_arguments().size())
     return;
   TemplateArgumentLoc FunctorLoc = FunctorParentLoc.getArgLoc(ArgNum);
   auto FunctorTypeLoc = getInnerTypeLocAs<TemplateSpecializationTypeLoc>(
@@ -119,7 +119,7 @@ void UseTransparentFunctorsCheck::check(
   SourceLocation ReportLoc = FunctorLoc.getLocation();
   if (ReportLoc.isInvalid())
     return;
-  diag(ReportLoc, Message) << (FuncClass->getName() + "<>").str()
+  diag(ReportLoc, Message) << FuncClass->getName()
                            << FixItHint::CreateRemoval(
                                   FunctorTypeLoc.getArgLoc(0).getSourceRange());
 }

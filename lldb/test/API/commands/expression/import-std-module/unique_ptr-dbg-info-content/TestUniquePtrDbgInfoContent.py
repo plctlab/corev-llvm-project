@@ -9,10 +9,9 @@ from lldbsuite.test import lldbutil
 
 class TestUniquePtrDbgInfoContent(TestBase):
 
-    mydir = TestBase.compute_mydir(__file__)
-
     @add_test_categories(["libc++"])
     @skipIf(compiler=no_match("clang"))
+    @skipIf(compiler="clang", compiler_version=['<', '9.0'])
     @skipIfLinux # s.reset() causes link errors on ubuntu 18.04/Clang 9
     def test(self):
         self.build()
@@ -25,7 +24,7 @@ class TestUniquePtrDbgInfoContent(TestBase):
 
         self.expect_expr(
             "s",
-            result_type="std::unique_ptr<Foo, std::default_delete<Foo> >",
+            result_type="std::unique_ptr<Foo>",
             result_children=[ValueCheck(children=[ValueCheck(value="3")])])
         self.expect_expr("s->a", result_type="int", result_value="3")
         self.expect_expr("s->a = 5", result_type="int", result_value="5")

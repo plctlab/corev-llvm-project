@@ -14,7 +14,6 @@
 #include "lldb/Target/Process.h"
 #include "lldb/Target/StopInfo.h"
 #include "lldb/Utility/ArchSpec.h"
-#include "lldb/Utility/Reproducer.h"
 #include "gtest/gtest.h"
 
 using namespace lldb_private;
@@ -25,7 +24,6 @@ namespace {
 class ThreadTest : public ::testing::Test {
 public:
   void SetUp() override {
-    llvm::cantFail(Reproducer::Initialize(ReproducerMode::Off, llvm::None));
     FileSystem::Initialize();
     HostInfo::Initialize();
     platform_linux::PlatformLinux::Initialize();
@@ -34,29 +32,28 @@ public:
     platform_linux::PlatformLinux::Terminate();
     HostInfo::Terminate();
     FileSystem::Terminate();
-    Reproducer::Terminate();
   }
 };
 
 class DummyProcess : public Process {
 public:
-  using Process::Process;
+  DummyProcess(lldb::TargetSP target_sp, lldb::ListenerSP listener_sp)
+      : Process(target_sp, listener_sp) {}
 
-  virtual bool CanDebug(lldb::TargetSP target, bool plugin_specified_by_name) {
+  bool CanDebug(lldb::TargetSP target, bool plugin_specified_by_name) override {
     return true;
   }
-  virtual Status DoDestroy() { return {}; }
-  virtual void RefreshStateAfterStop() {}
-  virtual size_t DoReadMemory(lldb::addr_t vm_addr, void *buf, size_t size,
-                              Status &error) {
+  Status DoDestroy() override { return {}; }
+  void RefreshStateAfterStop() override {}
+  size_t DoReadMemory(lldb::addr_t vm_addr, void *buf, size_t size,
+                      Status &error) override {
     return 0;
   }
-  virtual bool UpdateThreadList(ThreadList &old_thread_list,
-                                ThreadList &new_thread_list) {
+  bool DoUpdateThreadList(ThreadList &old_thread_list,
+                          ThreadList &new_thread_list) override {
     return false;
   }
-  virtual ConstString GetPluginName() { return ConstString("Dummy"); }
-  virtual uint32_t GetPluginVersion() { return 0; }
+  llvm::StringRef GetPluginName() override { return "Dummy"; }
 
   ProcessModID &GetModIDNonConstRef() { return m_mod_id; }
 };
@@ -83,15 +80,10 @@ public:
 } // namespace
 
 TargetSP CreateTarget(DebuggerSP &debugger_sp, ArchSpec &arch) {
-  Status error;
   PlatformSP platform_sp;
   TargetSP target_sp;
-  error = debugger_sp->GetTargetList().CreateTarget(
+  debugger_sp->GetTargetList().CreateTarget(
       *debugger_sp, "", arch, eLoadDependentsNo, platform_sp, target_sp);
-
-  if (target_sp) {
-    debugger_sp->GetTargetList().SetSelectedTarget(target_sp.get());
-  }
 
   return target_sp;
 }

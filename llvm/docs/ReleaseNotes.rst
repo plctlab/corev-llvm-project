@@ -1,29 +1,31 @@
-=========================
-LLVM 12.0.0 Release Notes
-=========================
+============================
+LLVM |release| Release Notes
+============================
 
 .. contents::
     :local:
 
-.. warning::
-   These are in-progress notes for the upcoming LLVM 12 release.
-   Release notes for previous releases can be found on
-   `the Download Page <https://releases.llvm.org/download.html>`_.
+.. only:: PreRelease
+
+  .. warning::
+     These are in-progress notes for the upcoming LLVM |version| release.
+     Release notes for previous releases can be found on
+     `the Download Page <https://releases.llvm.org/download.html>`_.
 
 
 Introduction
 ============
 
 This document contains the release notes for the LLVM Compiler Infrastructure,
-release 12.0.0.  Here we describe the status of LLVM, including major improvements
+release |release|.  Here we describe the status of LLVM, including major improvements
 from the previous release, improvements in various subprojects of LLVM, and
 some of the current users of the code.  All LLVM releases may be downloaded
 from the `LLVM releases web site <https://llvm.org/releases/>`_.
 
 For more information about LLVM, including information about the latest
 release, please check out the `main LLVM web site <https://llvm.org/>`_.  If you
-have questions or comments, the `LLVM Developer's Mailing List
-<https://lists.llvm.org/mailman/listinfo/llvm-dev>`_ is a good place to send
+have questions or comments, the `Discourse forums
+<https://discourse.llvm.org>`_ is a good place to ask
 them.
 
 Note that if you are reading this file from a Git checkout or the main
@@ -40,36 +42,35 @@ Non-comprehensive list of changes in this release
    functionality, or simply have a lot to talk about), see the `NOTE` below
    for adding a new subsection.
 
-* The ConstantPropagation pass was removed. Users should use the InstSimplify
-  pass instead.
+*  The ``readnone`` calls which are crossing suspend points in coroutines will
+   not be merged. Since ``readnone`` calls may access thread id and thread id
+   is not a constant in coroutines. This decision may cause unnecessary
+   performance regressions and we plan to fix it in later versions.
 
+* ...
 
-.. NOTE
-   If you would like to document a larger change, then you can add a
-   subsection about it right here. You can copy the following boilerplate
-   and un-indent it (the indentation causes it to be inside this comment).
+Update on required toolchains to build LLVM
+-------------------------------------------
 
-   Special New Feature
-   -------------------
+LLVM is now built with C++17 by default. This means C++17 can be used in
+the code base.
 
-   Makes programs 10x faster by doing Special New Thing.
+The previous "soft" toolchain requirements have now been changed to "hard".
+This means that the the following versions are now required to build LLVM
+and there is no way to suppress this error.
 
+* GCC >= 7.1
+* Clang >= 5.0
+* Apple Clang >= 10.0
+* Visual Studio 2019 >= 16.7
 
 Changes to the LLVM IR
 ----------------------
 
-* ...
+* The constant expression variants of the following instructions has been
+  removed:
 
-* Added the ``byref`` attribute to better represent argument passing
-  for the `amdgpu_kernel` calling convention.
-
-* Added type parameter to the ``sret`` attribute to continue work on
-  removing pointer element types.
-
-* The ``llvm.experimental.vector.reduce`` family of intrinsics have been renamed
-  to drop the "experimental" from the name, reflecting their now fully supported
-  status in the IR.
-
+  * ``fneg``
 
 Changes to building LLVM
 ------------------------
@@ -77,98 +78,131 @@ Changes to building LLVM
 Changes to TableGen
 -------------------
 
-* The new "TableGen Programmer's Reference" replaces the "TableGen Language
-  Introduction" and "TableGen Language Reference" documents.
+Changes to the AArch64 Backend
+------------------------------
 
-* The syntax for specifying an integer range in a range list has changed.
-  The old syntax used a hyphen in the range (e.g., ``{0-9}``). The new syntax
-  uses the "`...`" range punctuation (e.g., ``{0...9}``). The hyphen syntax
-  is deprecated.
+Changes to the AMDGPU Backend
+-----------------------------
 
 Changes to the ARM Backend
 --------------------------
 
-During this release ...
+* Support for targeting armv2, armv2A, armv3 and armv3M has been removed.
+  LLVM did not, and was not ever likely to generate correct code for those
+  architecture versions so their presence was misleading.
 
-Changes to the MIPS Target
+Changes to the AVR Backend
 --------------------------
 
-During this release ...
+* ...
 
+Changes to the DirectX Backend
+------------------------------
 
-Changes to the PowerPC Target
+Changes to the Hexagon Backend
+------------------------------
+
+* ...
+
+Changes to the MIPS Backend
+---------------------------
+
+* ...
+
+Changes to the PowerPC Backend
+------------------------------
+
+* ...
+
+Changes to the RISC-V Backend
 -----------------------------
 
-During this release ...
+* Support for the unratified Zbe, Zbf, Zbm, Zbp, Zbr, and Zbt extensions have
+  been removed.
+* i32 is now a native type in the datalayout string. This enables
+  LoopStrengthReduce for loops with i32 induction variables, among other
+  optimizations.
 
-Changes to the X86 Target
--------------------------
+Changes to the WebAssembly Backend
+----------------------------------
 
-During this release ...
+* ...
 
-* The 'mpx' feature was removed from the backend. It had been removed from clang
-  frontend in 10.0. Mention of the 'mpx' feature in an IR file will print a
-  message to stderr, but IR should still compile.
-* Support for ``-march=alderlake``, ``-march=sapphirerapids``,
-  ``-march=znver3`` and ``-march=x86-64-v[234]`` has been added.
-* The assembler now has support for {disp32} and {disp8} pseudo prefixes for
-  controlling displacement size for memory operands and jump displacements. The
-  assembler also supports the .d32 and .d8 mnemonic suffixes to do the same.
-* A new function attribute "tune-cpu" has been added to support -mtune like gcc.
-  This allows microarchitectural optimizations to be applied independent from
-  the "target-cpu" attribute or TargetMachine CPU which will be used to select
-  Instruction Set. If the attribute is not present, the tune CPU will follow
-  the target CPU.
-* Support for ``HRESET`` instructions has been added.
-* Support for ``UINTR`` instructions has been added.
-* Support for ``AVXVNNI`` instructions has been added.
-
-Changes to the AMDGPU Target
+Changes to the Windows Target
 -----------------------------
 
-During this release ...
+* For MinGW, generate embedded ``-exclude-symbols:`` directives for symbols
+  with hidden visibility, omitting them from automatic export of all symbols.
+  This roughly makes hidden visibility work like it does for other object
+  file formats.
 
-* The new ``byref`` attribute is now the preferred method for
-  representing aggregate kernel arguments.
+Changes to the X86 Backend
+--------------------------
 
-Changes to the AVR Target
------------------------------
-
-During this release ...
-
-Changes to the WebAssembly Target
----------------------------------
-
-During this release ...
+* Add support for the ``RDMSRLIST and WRMSRLIST`` instructions.
+* Add support for the ``WRMSRNS`` instruction.
+* Support ISA of ``AMX-FP16`` which contains ``tdpfp16ps`` instruction.
+* Support ISA of ``CMPCCXADD``.
+* Support ISA of ``AVX-IFMA``.
+* Support ISA of ``AVX-VNNI-INT8``.
+* Support ISA of ``AVX-NE-CONVERT``.
 
 Changes to the OCaml bindings
 -----------------------------
 
 
-
 Changes to the C API
 --------------------
 
+* The following functions for creating constant expressions have been removed,
+  because the underlying constant expressions are no longer supported. Instead,
+  an instruction should be created using the ``LLVMBuildXYZ`` APIs, which will
+  constant fold the operands if possible and create an instruction otherwise:
+
+  * ``LLVMConstFNeg``
 
 Changes to the Go bindings
 --------------------------
 
 
+Changes to the FastISel infrastructure
+--------------------------------------
+
+* ...
+
 Changes to the DAG infrastructure
 ---------------------------------
 
 
+Changes to the Metadata Info
+---------------------------------
+
+* Add Module Flags Metadata ``stack-protector-guard-symbol`` which specify a
+  symbol for addressing the stack-protector guard.
+
 Changes to the Debug Info
 ---------------------------------
 
-During this release ...
+Previously when emitting DWARF v4 and tuning for GDB, llc would use DWARF v2's
+``DW_AT_bit_offset`` and ``DW_AT_data_member_location``. llc now uses DWARF v4's
+``DW_AT_data_bit_offset`` regardless of tuning.
+
+Support for ``DW_AT_data_bit_offset`` was added in GDB 8.0. For earlier versions,
+you can use llc's ``-dwarf-version=3`` option to emit compatible DWARF.
 
 Changes to the LLVM tools
 ---------------------------------
 
-* llvm-readobj and llvm-readelf behavior has changed to report an error when
-  executed with no input files instead of reading an input from stdin.
-  Reading from stdin can still be achieved by specifying `-` as an input file.
+* ``llvm-readobj --elf-output-style=JSON`` no longer prefixes each JSON object
+  with the file name. Previously, each object file's output looked like
+  ``"main.o":{"FileSummary":{"File":"main.o"},...}`` but is now
+  ``{"FileSummary":{"File":"main.o"},...}``. This allows each JSON object to be
+  parsed in the same way, since each object no longer has a unique key. Tools
+  that consume ``llvm-readobj``'s JSON output should update their parsers
+  accordingly.
+
+* ``llvm-objdump`` now uses ``--print-imm-hex`` by default, which brings its
+  default behavior closer in line with ``objdump``.
 
 Changes to LLDB
 ---------------------------------
@@ -176,12 +210,11 @@ Changes to LLDB
 Changes to Sanitizers
 ---------------------
 
-The integer sanitizer `-fsanitize=integer` now has a new sanitizer:
-`-fsanitize=unsigned-shift-base`. It's not undefined behavior for an unsigned
-left shift to overflow (i.e. to shift bits out), but it has been the source of
-bugs and exploits in certain codebases in the past.
 
-External Open Source Projects Using LLVM 12
+Other Changes
+-------------
+
+External Open Source Projects Using LLVM 15
 ===========================================
 
 * A project...
@@ -197,4 +230,4 @@ code.  You can access versions of these documents specific to this release by
 going into the ``llvm/docs/`` directory in the LLVM tree.
 
 If you have any questions or comments about LLVM, please feel free to contact
-us via the `mailing lists <https://llvm.org/docs/#mailing-lists>`_.
+us via the `Discourse forums <https://discourse.llvm.org>`_.

@@ -8,7 +8,6 @@
 
 #include "llvm/MC/MCExpr.h"
 #include "llvm/ADT/Statistic.h"
-#include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Config/llvm-config.h"
 #include "llvm/MC/MCAsmBackend.h"
@@ -76,8 +75,9 @@ void MCExpr::print(raw_ostream &OS, const MCAsmInfo *MAI, bool InParens) const {
     const MCSymbol &Sym = SRE.getSymbol();
     // Parenthesize names that start with $ so that they don't look like
     // absolute names.
-    bool UseParens =
-        !InParens && !Sym.getName().empty() && Sym.getName()[0] == '$';
+    bool UseParens = MAI && MAI->useParensForDollarSignNames() && !InParens &&
+                     !Sym.getName().empty() && Sym.getName()[0] == '$';
+
     if (UseParens) {
       OS << '(';
       Sym.print(OS, MAI);
@@ -230,6 +230,7 @@ StringRef MCSymbolRefExpr::getVariantKindName(VariantKind Kind) {
   case VK_GOTREL: return "GOTREL";
   case VK_PCREL: return "PCREL";
   case VK_GOTPCREL: return "GOTPCREL";
+  case VK_GOTPCREL_NORELAX: return "GOTPCREL_NORELAX";
   case VK_GOTTPOFF: return "GOTTPOFF";
   case VK_INDNTPOFF: return "INDNTPOFF";
   case VK_NTPOFF: return "NTPOFF";
@@ -253,6 +254,7 @@ StringRef MCSymbolRefExpr::getVariantKindName(VariantKind Kind) {
   case VK_SIZE: return "SIZE";
   case VK_WEAKREF: return "WEAKREF";
   case VK_X86_ABS8: return "ABS8";
+  case VK_X86_PLTOFF: return "PLTOFF";
   case VK_ARM_NONE: return "none";
   case VK_ARM_GOT_PREL: return "GOT_PREL";
   case VK_ARM_TARGET1: return "target1";
@@ -268,6 +270,7 @@ StringRef MCSymbolRefExpr::getVariantKindName(VariantKind Kind) {
   case VK_AVR_DIFF8: return "diff8";
   case VK_AVR_DIFF16: return "diff16";
   case VK_AVR_DIFF32: return "diff32";
+  case VK_AVR_PM: return "pm";
   case VK_PPC_LO: return "l";
   case VK_PPC_HI: return "h";
   case VK_PPC_HA: return "ha";
@@ -320,6 +323,10 @@ StringRef MCSymbolRefExpr::getVariantKindName(VariantKind Kind) {
   case VK_PPC_GOT_TLSGD_HI: return "got@tlsgd@h";
   case VK_PPC_GOT_TLSGD_HA: return "got@tlsgd@ha";
   case VK_PPC_TLSGD: return "tlsgd";
+  case VK_PPC_AIX_TLSGD:
+    return "gd";
+  case VK_PPC_AIX_TLSGDM:
+    return "m";
   case VK_PPC_GOT_TLSLD: return "got@tlsld";
   case VK_PPC_GOT_TLSLD_LO: return "got@tlsld@l";
   case VK_PPC_GOT_TLSLD_HI: return "got@tlsld@h";
@@ -350,7 +357,9 @@ StringRef MCSymbolRefExpr::getVariantKindName(VariantKind Kind) {
   case VK_Hexagon_IE_GOT: return "IEGOT";
   case VK_WASM_TYPEINDEX: return "TYPEINDEX";
   case VK_WASM_MBREL: return "MBREL";
+  case VK_WASM_TLSREL: return "TLSREL";
   case VK_WASM_TBREL: return "TBREL";
+  case VK_WASM_GOT_TLS: return "GOT@TLS";
   case VK_AMDGPU_GOTPCREL32_LO: return "gotpcrel32@lo";
   case VK_AMDGPU_GOTPCREL32_HI: return "gotpcrel32@hi";
   case VK_AMDGPU_REL32_LO: return "rel32@lo";
@@ -386,6 +395,7 @@ MCSymbolRefExpr::getVariantKindForName(StringRef Name) {
     .Case("gotrel", VK_GOTREL)
     .Case("pcrel", VK_PCREL)
     .Case("gotpcrel", VK_GOTPCREL)
+    .Case("gotpcrel_norelax", VK_GOTPCREL_NORELAX)
     .Case("gottpoff", VK_GOTTPOFF)
     .Case("indntpoff", VK_INDNTPOFF)
     .Case("ntpoff", VK_NTPOFF)
@@ -409,6 +419,7 @@ MCSymbolRefExpr::getVariantKindForName(StringRef Name) {
     .Case("secrel32", VK_SECREL)
     .Case("size", VK_SIZE)
     .Case("abs8", VK_X86_ABS8)
+    .Case("pltoff", VK_X86_PLTOFF)
     .Case("l", VK_PPC_LO)
     .Case("h", VK_PPC_HI)
     .Case("ha", VK_PPC_HA)
@@ -490,6 +501,8 @@ MCSymbolRefExpr::getVariantKindForName(StringRef Name) {
     .Case("typeindex", VK_WASM_TYPEINDEX)
     .Case("tbrel", VK_WASM_TBREL)
     .Case("mbrel", VK_WASM_MBREL)
+    .Case("tlsrel", VK_WASM_TLSREL)
+    .Case("got@tls", VK_WASM_GOT_TLS)
     .Case("gotpcrel32@lo", VK_AMDGPU_GOTPCREL32_LO)
     .Case("gotpcrel32@hi", VK_AMDGPU_GOTPCREL32_HI)
     .Case("rel32@lo", VK_AMDGPU_REL32_LO)
@@ -662,24 +675,6 @@ static void AttemptToFoldSymbolOffsetDifference(
   }
 }
 
-static bool canFold(const MCAssembler *Asm, const MCSymbolRefExpr *A,
-                    const MCSymbolRefExpr *B, bool InSet) {
-  if (InSet)
-    return true;
-
-  if (!Asm->getBackend().requiresDiffExpressionRelocations())
-    return true;
-
-  const MCSymbol &CheckSym = A ? A->getSymbol() : B->getSymbol();
-  if (!CheckSym.isInSection())
-    return true;
-
-  if (!CheckSym.getSection().hasInstructions())
-    return true;
-
-  return false;
-}
-
 /// Evaluate the result of an add between (conceptually) two MCValues.
 ///
 /// This routine conceptually attempts to construct an MCValue:
@@ -716,11 +711,8 @@ EvaluateSymbolicAdd(const MCAssembler *Asm, const MCAsmLayout *Layout,
   assert((!Layout || Asm) &&
          "Must have an assembler object if layout is given!");
 
-  // If we have a layout, we can fold resolved differences. Do not do this if
-  // the backend requires this to be emitted as individual relocations, unless
-  // the InSet flag is set to get the current difference anyway (used for
-  // example to calculate symbol sizes).
-  if (Asm && canFold(Asm, LHS_A, LHS_B, InSet)) {
+  // If we have a layout, we can fold resolved differences.
+  if (Asm) {
     // First, fold out any differences which are fully resolved. By
     // reassociating terms in
     //   Result = (LHS_A - LHS_B + LHS_Cst) + (RHS_A - RHS_B + RHS_Cst).
@@ -800,13 +792,30 @@ bool MCExpr::evaluateAsRelocatableImpl(MCValue &Res, const MCAssembler *Asm,
   case SymbolRef: {
     const MCSymbolRefExpr *SRE = cast<MCSymbolRefExpr>(this);
     const MCSymbol &Sym = SRE->getSymbol();
+    const auto Kind = SRE->getKind();
 
     // Evaluate recursively if this is a variable.
-    if (Sym.isVariable() && SRE->getKind() == MCSymbolRefExpr::VK_None &&
+    if (Sym.isVariable() && (Kind == MCSymbolRefExpr::VK_None || Layout) &&
         canExpand(Sym, InSet)) {
       bool IsMachO = SRE->hasSubsectionsViaSymbols();
       if (Sym.getVariableValue()->evaluateAsRelocatableImpl(
               Res, Asm, Layout, Fixup, Addrs, InSet || IsMachO)) {
+        if (Kind != MCSymbolRefExpr::VK_None) {
+          if (Res.isAbsolute()) {
+            Res = MCValue::get(SRE, nullptr, 0);
+            return true;
+          }
+          // If the reference has a variant kind, we can only handle expressions
+          // which evaluate exactly to a single unadorned symbol. Attach the
+          // original VariantKind to SymA of the result.
+          if (Res.getRefKind() != MCSymbolRefExpr::VK_None || !Res.getSymA() ||
+              Res.getSymB() || Res.getConstant())
+            return false;
+          Res =
+              MCValue::get(MCSymbolRefExpr::create(&Res.getSymA()->getSymbol(),
+                                                   Kind, Asm->getContext()),
+                           Res.getSymB(), Res.getConstant(), Res.getRefKind());
+        }
         if (!IsMachO)
           return true;
 

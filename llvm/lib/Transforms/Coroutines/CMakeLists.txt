@@ -1,6 +1,7 @@
 add_llvm_component_library(LLVMCoroutines
   Coroutines.cpp
   CoroCleanup.cpp
+  CoroConditionalWrapper.cpp
   CoroEarly.cpp
   CoroElide.cpp
   CoroFrame.cpp
@@ -12,4 +13,12 @@ add_llvm_component_library(LLVMCoroutines
   DEPENDS
   intrinsics_gen
   LLVMAnalysis
+
+  LINK_COMPONENTS
+  Analysis
+  Core
+  IPO
+  Scalar
+  Support
+  TransformUtils
   )

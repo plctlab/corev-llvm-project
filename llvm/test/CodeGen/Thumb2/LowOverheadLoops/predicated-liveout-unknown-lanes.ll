@@ -7,8 +7,9 @@ define arm_aapcs_vfpcc <4 x float> @arm_max_no_idx_f32_mve(float* %pSrc, i32 %bl
 ; CHECK-NEXT:    .save {r7, lr}
 ; CHECK-NEXT:    push {r7, lr}
 ; CHECK-NEXT:    subs r2, r1, #4
-; CHECK-NEXT:    adr r3, .LCPI0_0
-; CHECK-NEXT:    vldrw.u32 q0, [r3]
+; CHECK-NEXT:    movw r3, #0
+; CHECK-NEXT:    movt r3, #65408
+; CHECK-NEXT:    vdup.32 q0, r3
 ; CHECK-NEXT:    dlstp.32 lr, r1
 ; CHECK-NEXT:  .LBB0_1: @ %do.body
 ; CHECK-NEXT:    @ =>This Inner Loop Header: Depth=1

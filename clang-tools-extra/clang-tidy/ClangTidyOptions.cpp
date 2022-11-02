@@ -13,9 +13,9 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Errc.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/MemoryBufferRef.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/YAMLTraits.h"
-#include "llvm/Support/raw_ostream.h"
 #include <utility>
 
 #define DEBUG_TYPE "clang-tidy-options"
@@ -47,7 +47,7 @@ template <> struct MappingTraits<FileFilter> {
     IO.mapRequired("name", File.Name);
     IO.mapOptional("lines", File.LineRanges);
   }
-  static std::string validate(IO &io, FileFilter &File) {
+  static std::string validate(IO &Io, FileFilter &File) {
     if (File.Name.empty())
       return "No file name specified";
     for (const FileFilter::LineRange &Range : File.LineRanges) {
@@ -81,10 +81,44 @@ struct NOptionMap {
   std::vector<ClangTidyOptions::StringPair> Options;
 };
 
+template <>
+void yamlize(IO &IO, ClangTidyOptions::OptionMap &Options, bool,
+             EmptyContext &Ctx) {
+  if (IO.outputting()) {
+    IO.beginMapping();
+    // Only output as a map
+    for (auto &Key : Options) {
+      bool UseDefault;
+      void *SaveInfo;
+      IO.preflightKey(Key.getKey().data(), true, false, UseDefault, SaveInfo);
+      StringRef S = Key.getValue().Value;
+      IO.scalarString(S, needsQuotes(S));
+      IO.postflightKey(SaveInfo);
+    }
+    IO.endMapping();
+  } else {
+    // We need custom logic here to support the old method of specifying check
+    // options using a list of maps containing key and value keys.
+    Input &I = reinterpret_cast<Input &>(IO);
+    if (isa<SequenceNode>(I.getCurrentNode())) {
+      MappingNormalization<NOptionMap, ClangTidyOptions::OptionMap> NOpts(
+          IO, Options);
+      EmptyContext Ctx;
+      yamlize(IO, NOpts->Options, true, Ctx);
+    } else if (isa<MappingNode>(I.getCurrentNode())) {
+      IO.beginMapping();
+      for (StringRef Key : IO.keys()) {
+        IO.mapRequired(Key.data(), Options[Key].Value);
+      }
+      IO.endMapping();
+    } else {
+      IO.setError("expected a sequence or map");
+    }
+  }
+}
+
 template <> struct MappingTraits<ClangTidyOptions> {
   static void mapping(IO &IO, ClangTidyOptions &Options) {
-    MappingNormalization<NOptionMap, ClangTidyOptions::OptionMap> NOpts(
-        IO, Options.CheckOptions);
     bool Ignored = false;
     IO.mapOptional("Checks", Options.Checks);
     IO.mapOptional("WarningsAsErrors", Options.WarningsAsErrors);
@@ -92,7 +126,7 @@ template <> struct MappingTraits<ClangTidyOptions> {
     IO.mapOptional("AnalyzeTemporaryDtors", Ignored); // legacy compatibility
     IO.mapOptional("FormatStyle", Options.FormatStyle);
     IO.mapOptional("User", Options.User);
-    IO.mapOptional("CheckOptions", NOpts->Options);
+    IO.mapOptional("CheckOptions", Options.CheckOptions);
     IO.mapOptional("ExtraArgs", Options.ExtraArgs);
     IO.mapOptional("ExtraArgsBefore", Options.ExtraArgsBefore);
     IO.mapOptional("InheritParentConfig", Options.InheritParentConfig);
@@ -116,7 +150,7 @@ ClangTidyOptions ClangTidyOptions::getDefaults() {
   Options.User = llvm::None;
   for (const ClangTidyModuleRegistry::entry &Module :
        ClangTidyModuleRegistry::entries())
-    Options = Options.mergeWith(Module.instantiate()->getModuleOptions(), 0);
+    Options.mergeWith(Module.instantiate()->getModuleOptions(), 0);
   return Options;
 }
 
@@ -142,27 +176,31 @@ static void overrideValue(Optional<T> &Dest, const Optional<T> &Src) {
     Dest = Src;
 }
 
-ClangTidyOptions ClangTidyOptions::mergeWith(const ClangTidyOptions &Other,
-                                             unsigned Priority) const {
-  ClangTidyOptions Result = *this;
-
-  mergeCommaSeparatedLists(Result.Checks, Other.Checks);
-  mergeCommaSeparatedLists(Result.WarningsAsErrors, Other.WarningsAsErrors);
-  overrideValue(Result.HeaderFilterRegex, Other.HeaderFilterRegex);
-  overrideValue(Result.SystemHeaders, Other.SystemHeaders);
-  overrideValue(Result.FormatStyle, Other.FormatStyle);
-  overrideValue(Result.User, Other.User);
-  overrideValue(Result.UseColor, Other.UseColor);
-  mergeVectors(Result.ExtraArgs, Other.ExtraArgs);
-  mergeVectors(Result.ExtraArgsBefore, Other.ExtraArgsBefore);
+ClangTidyOptions &ClangTidyOptions::mergeWith(const ClangTidyOptions &Other,
+                                              unsigned Order) {
+  mergeCommaSeparatedLists(Checks, Other.Checks);
+  mergeCommaSeparatedLists(WarningsAsErrors, Other.WarningsAsErrors);
+  overrideValue(HeaderFilterRegex, Other.HeaderFilterRegex);
+  overrideValue(SystemHeaders, Other.SystemHeaders);
+  overrideValue(FormatStyle, Other.FormatStyle);
+  overrideValue(User, Other.User);
+  overrideValue(UseColor, Other.UseColor);
+  mergeVectors(ExtraArgs, Other.ExtraArgs);
+  mergeVectors(ExtraArgsBefore, Other.ExtraArgsBefore);
 
   for (const auto &KeyValue : Other.CheckOptions) {
-    Result.CheckOptions.insert_or_assign(
+    CheckOptions.insert_or_assign(
         KeyValue.getKey(),
         ClangTidyValue(KeyValue.getValue().Value,
-                       KeyValue.getValue().Priority + Priority));
+                       KeyValue.getValue().Priority + Order));
   }
+  return *this;
+}
 
+ClangTidyOptions ClangTidyOptions::merge(const ClangTidyOptions &Other,
+                                         unsigned Order) const {
+  ClangTidyOptions Result = *this;
+  Result.mergeWith(Other, Order);
   return Result;
 }
 
@@ -178,8 +216,8 @@ ClangTidyOptions
 ClangTidyOptionsProvider::getOptions(llvm::StringRef FileName) {
   ClangTidyOptions Result;
   unsigned Priority = 0;
-  for (const auto &Source : getRawOptions(FileName))
-    Result = Result.mergeWith(Source.first, ++Priority);
+  for (auto &Source : getRawOptions(FileName))
+    Result.mergeWith(Source.first, ++Priority);
   return Result;
 }
 
@@ -191,20 +229,19 @@ DefaultOptionsProvider::getRawOptions(llvm::StringRef FileName) {
 }
 
 ConfigOptionsProvider::ConfigOptionsProvider(
-    const ClangTidyGlobalOptions &GlobalOptions,
-    const ClangTidyOptions &DefaultOptions,
-    const ClangTidyOptions &ConfigOptions,
-    const ClangTidyOptions &OverrideOptions,
+    ClangTidyGlobalOptions GlobalOptions, ClangTidyOptions DefaultOptions,
+    ClangTidyOptions ConfigOptions, ClangTidyOptions OverrideOptions,
     llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem> FS)
-    : FileOptionsBaseProvider(GlobalOptions, DefaultOptions, OverrideOptions,
-                              FS),
-      ConfigOptions(ConfigOptions) {}
+    : FileOptionsBaseProvider(std::move(GlobalOptions),
+                              std::move(DefaultOptions),
+                              std::move(OverrideOptions), std::move(FS)),
+      ConfigOptions(std::move(ConfigOptions)) {}
 
 std::vector<OptionsSource>
 ConfigOptionsProvider::getRawOptions(llvm::StringRef FileName) {
   std::vector<OptionsSource> RawOptions =
       DefaultOptionsProvider::getRawOptions(FileName);
-  if (ConfigOptions.InheritParentConfig.getValueOr(false)) {
+  if (ConfigOptions.InheritParentConfig.value_or(false)) {
     LLVM_DEBUG(llvm::dbgs()
                << "Getting options for file " << FileName << "...\n");
     assert(FS && "FS must be set.");
@@ -223,24 +260,25 @@ ConfigOptionsProvider::getRawOptions(llvm::StringRef FileName) {
 }
 
 FileOptionsBaseProvider::FileOptionsBaseProvider(
-    const ClangTidyGlobalOptions &GlobalOptions,
-    const ClangTidyOptions &DefaultOptions,
-    const ClangTidyOptions &OverrideOptions,
+    ClangTidyGlobalOptions GlobalOptions, ClangTidyOptions DefaultOptions,
+    ClangTidyOptions OverrideOptions,
     llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem> VFS)
-    : DefaultOptionsProvider(GlobalOptions, DefaultOptions),
-      OverrideOptions(OverrideOptions), FS(std::move(VFS)) {
+    : DefaultOptionsProvider(std::move(GlobalOptions),
+                             std::move(DefaultOptions)),
+      OverrideOptions(std::move(OverrideOptions)), FS(std::move(VFS)) {
   if (!FS)
     FS = llvm::vfs::getRealFileSystem();
   ConfigHandlers.emplace_back(".clang-tidy", parseConfiguration);
 }
 
 FileOptionsBaseProvider::FileOptionsBaseProvider(
-    const ClangTidyGlobalOptions &GlobalOptions,
-    const ClangTidyOptions &DefaultOptions,
-    const ClangTidyOptions &OverrideOptions,
-    const FileOptionsBaseProvider::ConfigFileHandlers &ConfigHandlers)
-    : DefaultOptionsProvider(GlobalOptions, DefaultOptions),
-      OverrideOptions(OverrideOptions), ConfigHandlers(ConfigHandlers) {}
+    ClangTidyGlobalOptions GlobalOptions, ClangTidyOptions DefaultOptions,
+    ClangTidyOptions OverrideOptions,
+    FileOptionsBaseProvider::ConfigFileHandlers ConfigHandlers)
+    : DefaultOptionsProvider(std::move(GlobalOptions),
+                             std::move(DefaultOptions)),
+      OverrideOptions(std::move(OverrideOptions)),
+      ConfigHandlers(std::move(ConfigHandlers)) {}
 
 void FileOptionsBaseProvider::addRawFileOptions(
     llvm::StringRef AbsolutePath, std::vector<OptionsSource> &CurOptions) {
@@ -272,7 +310,7 @@ void FileOptionsBaseProvider::addRawFileOptions(
       CachedOptions[Path] = *Result;
 
       CurOptions.push_back(*Result);
-      if (!Result->first.InheritParentConfig.getValueOr(false))
+      if (!Result->first.InheritParentConfig.value_or(false))
         break;
     }
   }
@@ -282,20 +320,20 @@ void FileOptionsBaseProvider::addRawFileOptions(
 }
 
 FileOptionsProvider::FileOptionsProvider(
-    const ClangTidyGlobalOptions &GlobalOptions,
-    const ClangTidyOptions &DefaultOptions,
-    const ClangTidyOptions &OverrideOptions,
+    ClangTidyGlobalOptions GlobalOptions, ClangTidyOptions DefaultOptions,
+    ClangTidyOptions OverrideOptions,
     llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem> VFS)
-    : FileOptionsBaseProvider(GlobalOptions, DefaultOptions, OverrideOptions,
-                              VFS){}
+    : FileOptionsBaseProvider(std::move(GlobalOptions),
+                              std::move(DefaultOptions),
+                              std::move(OverrideOptions), std::move(VFS)) {}
 
 FileOptionsProvider::FileOptionsProvider(
-    const ClangTidyGlobalOptions &GlobalOptions,
-    const ClangTidyOptions &DefaultOptions,
-    const ClangTidyOptions &OverrideOptions,
-    const FileOptionsBaseProvider::ConfigFileHandlers &ConfigHandlers)
-    : FileOptionsBaseProvider(GlobalOptions, DefaultOptions, OverrideOptions,
-                              ConfigHandlers) {}
+    ClangTidyGlobalOptions GlobalOptions, ClangTidyOptions DefaultOptions,
+    ClangTidyOptions OverrideOptions,
+    FileOptionsBaseProvider::ConfigFileHandlers ConfigHandlers)
+    : FileOptionsBaseProvider(
+          std::move(GlobalOptions), std::move(DefaultOptions),
+          std::move(OverrideOptions), std::move(ConfigHandlers)) {}
 
 // FIXME: This method has some common logic with clang::format::getStyle().
 // Consider pulling out common bits to a findParentFileWithName function or
@@ -356,7 +394,7 @@ FileOptionsBaseProvider::tryReadConfigFile(StringRef Directory) {
     if ((*Text)->getBuffer().empty())
       continue;
     llvm::ErrorOr<ClangTidyOptions> ParsedOptions =
-        ConfigHandler.second((*Text)->getBuffer());
+        ConfigHandler.second({(*Text)->getBuffer(), ConfigFile});
     if (!ParsedOptions) {
       if (ParsedOptions.getError())
         llvm::errs() << "Error parsing " << ConfigFile << ": "
@@ -376,8 +414,25 @@ std::error_code parseLineFilter(StringRef LineFilter,
   return Input.error();
 }
 
-llvm::ErrorOr<ClangTidyOptions> parseConfiguration(StringRef Config) {
+llvm::ErrorOr<ClangTidyOptions>
+parseConfiguration(llvm::MemoryBufferRef Config) {
   llvm::yaml::Input Input(Config);
+  ClangTidyOptions Options;
+  Input >> Options;
+  if (Input.error())
+    return Input.error();
+  return Options;
+}
+
+static void diagHandlerImpl(const llvm::SMDiagnostic &Diag, void *Ctx) {
+  (*reinterpret_cast<DiagCallback *>(Ctx))(Diag);
+}
+
+llvm::ErrorOr<ClangTidyOptions>
+parseConfigurationWithDiags(llvm::MemoryBufferRef Config,
+                            DiagCallback Handler) {
+  llvm::yaml::Input Input(Config, nullptr, Handler ? diagHandlerImpl : nullptr,
+                          &Handler);
   ClangTidyOptions Options;
   Input >> Options;
   if (Input.error())

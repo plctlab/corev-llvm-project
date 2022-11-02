@@ -1,6 +1,6 @@
-; RUN: llc -fast-isel-sink-local-values < %s -O0 -verify-machineinstrs -fast-isel-abort=1 -relocation-model=dynamic-no-pic -mtriple=armv7-apple-ios | FileCheck %s --check-prefix=ARM
-; RUN: llc -fast-isel-sink-local-values < %s -O0 -verify-machineinstrs -fast-isel-abort=1 -relocation-model=dynamic-no-pic -mtriple=armv7-linux-gnueabi | FileCheck %s --check-prefix=ARM
-; RUN: llc -fast-isel-sink-local-values < %s -O0 -verify-machineinstrs -fast-isel-abort=1 -relocation-model=dynamic-no-pic -mtriple=thumbv7-apple-ios | FileCheck %s --check-prefix=THUMB
+; RUN: llc < %s -O0 -verify-machineinstrs -fast-isel-abort=1 -relocation-model=dynamic-no-pic -mtriple=armv7-apple-ios | FileCheck %s --check-prefix=ARM
+; RUN: llc < %s -O0 -verify-machineinstrs -fast-isel-abort=1 -relocation-model=dynamic-no-pic -mtriple=armv7-linux-gnueabi | FileCheck %s --check-prefix=ARM
+; RUN: llc < %s -O0 -verify-machineinstrs -fast-isel-abort=1 -relocation-model=dynamic-no-pic -mtriple=thumbv7-apple-ios | FileCheck %s --check-prefix=THUMB
 
 define i32 @VarArg() nounwind {
 entry:
@@ -18,9 +18,9 @@ entry:
 ; ARM: VarArg
 ; ARM: mov [[FP:r[0-9]+]], sp
 ; ARM: sub sp, sp, #32
-; ARM: ldr r1, {{\[}}[[FP]], #-4]
-; ARM: ldr r2, {{\[}}[[FP]], #-8]
-; ARM: ldr r3, {{\[}}[[FP]], #-12]
+; ARM: ldr r1, [[[FP]], #-4]
+; ARM: ldr r2, [[[FP]], #-8]
+; ARM: ldr r3, [[[FP]], #-12]
 ; ARM: ldr [[Ra:r[0-9]+|lr]], [sp, #16]
 ; ARM: ldr [[Rb:[lr]+[0-9]*]], [sp, #12]
 ; ARM: movw r0, #5

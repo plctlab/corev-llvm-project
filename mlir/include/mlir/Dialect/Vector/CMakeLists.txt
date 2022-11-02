@@ -1,2 +1,3 @@
-add_mlir_dialect(VectorOps vector)
-add_mlir_doc(VectorOps -gen-op-doc VectorOps Dialects/)
+add_subdirectory(IR)
+add_subdirectory(Interfaces)
+add_subdirectory(Transforms)

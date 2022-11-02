@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <iomanip>
 #include <sstream>
+#include <string.h>
 
 #include "llvm/ADT/Optional.h"
 #include "llvm/Support/FormatAdapters.h"
@@ -17,6 +18,7 @@
 
 #include "lldb/API/SBBreakpoint.h"
 #include "lldb/API/SBBreakpointLocation.h"
+#include "lldb/API/SBDeclaration.h"
 #include "lldb/API/SBValue.h"
 #include "lldb/Host/PosixApi.h"
 
@@ -130,24 +132,28 @@ std::vector<std::string> GetStrings(const llvm::json::Object *obj,
 
 void SetValueForKey(lldb::SBValue &v, llvm::json::Object &object,
                     llvm::StringRef key) {
-
-  llvm::StringRef value = v.GetValue();
-  llvm::StringRef summary = v.GetSummary();
-  llvm::StringRef type_name = v.GetType().GetDisplayTypeName();
-
   std::string result;
   llvm::raw_string_ostream strm(result);
-  if (!value.empty()) {
-    strm << value;
-    if (!summary.empty())
+
+  lldb::SBError error = v.GetError();
+  if (!error.Success()) {
+    strm << "<error: " << error.GetCString() << ">";
+  } else {
+    llvm::StringRef value = v.GetValue();
+    llvm::StringRef summary = v.GetSummary();
+    llvm::StringRef type_name = v.GetType().GetDisplayTypeName();
+    if (!value.empty()) {
+      strm << value;
+      if (!summary.empty())
+        strm << ' ' << summary;
+    } else if (!summary.empty()) {
       strm << ' ' << summary;
-  } else if (!summary.empty()) {
-    strm << ' ' << summary;
-  } else if (!type_name.empty()) {
-    strm << type_name;
-    lldb::addr_t address = v.GetLoadAddress();
-    if (address != LLDB_INVALID_ADDRESS)
-      strm << " @ " << llvm::format_hex(address, 0);
+    } else if (!type_name.empty()) {
+      strm << type_name;
+      lldb::addr_t address = v.GetLoadAddress();
+      if (address != LLDB_INVALID_ADDRESS)
+        strm << " @ " << llvm::format_hex(address, 0);
+    }
   }
   strm.flush();
   EmplaceSafeString(object, key, result);
@@ -173,6 +179,13 @@ void FillResponse(const llvm::json::Object &request,
 //     "name": {
 //       "type": "string",
 //       "description": "Name of the scope such as 'Arguments', 'Locals'."
+//     },
+//     "presentationHint": {
+//       "type": "string",
+//       "description": "An optional hint for how to present this scope in the
+//                       UI. If this attribute is missing, the scope is shown
+//                       with a generic UI.",
+//       "_enum": [ "arguments", "locals", "registers" ],
 //     },
 //     "variablesReference": {
 //       "type": "integer",
@@ -228,6 +241,15 @@ llvm::json::Value CreateScope(const llvm::StringRef name,
                               int64_t namedVariables, bool expensive) {
   llvm::json::Object object;
   EmplaceSafeString(object, "name", name.str());
+
+  // TODO: Support "arguments" scope. At the moment lldb-vscode includes the
+  // arguments into the "locals" scope.
+  if (variablesReference == VARREF_LOCALS) {
+    object.try_emplace("presentationHint", "locals");
+  } else if (variablesReference == VARREF_REGS) {
+    object.try_emplace("presentationHint", "registers");
+  }
+
   object.try_emplace("variablesReference", variablesReference);
   object.try_emplace("expensive", expensive);
   object.try_emplace("namedVariables", namedVariables);
@@ -733,7 +755,18 @@ llvm::json::Value CreateStackFrame(lldb::SBFrame &frame) {
   llvm::json::Object object;
   int64_t frame_id = MakeVSCodeFrameID(frame);
   object.try_emplace("id", frame_id);
-  EmplaceSafeString(object, "name", frame.GetFunctionName());
+
+  std::string frame_name;
+  const char *func_name = frame.GetFunctionName();
+  if (func_name)
+    frame_name = func_name;
+  else
+    frame_name = "<unknown>";
+  bool is_optimized = frame.GetFunction().GetIsOptimized();
+  if (is_optimized)
+    frame_name += " [opt]";
+  EmplaceSafeString(object, "name", frame_name);
+
   int64_t disasm_line = 0;
   object.try_emplace("source", CreateSource(frame, disasm_line));
 
@@ -867,14 +900,24 @@ llvm::json::Value CreateThreadStopped(lldb::SBThread &thread,
   case lldb::eStopReasonInstrumentation:
     body.try_emplace("reason", "breakpoint");
     break;
-  case lldb::eStopReasonSignal:
-    body.try_emplace("reason", "exception");
+  case lldb::eStopReasonProcessorTrace:
+    body.try_emplace("reason", "processor trace");
     break;
+  case lldb::eStopReasonSignal:
   case lldb::eStopReasonException:
     body.try_emplace("reason", "exception");
     break;
   case lldb::eStopReasonExec:
     body.try_emplace("reason", "entry");
+    break;
+  case lldb::eStopReasonFork:
+    body.try_emplace("reason", "fork");
+    break;
+  case lldb::eStopReasonVFork:
+    body.try_emplace("reason", "vfork");
+    break;
+  case lldb::eStopReasonVForkDone:
+    body.try_emplace("reason", "vforkdone");
     break;
   case lldb::eStopReasonThreadExiting:
   case lldb::eStopReasonInvalid:
@@ -888,7 +931,7 @@ llvm::json::Value CreateThreadStopped(lldb::SBThread &thread,
   // If no description has been set, then set it to the default thread stopped
   // description. If we have breakpoints that get hit and shouldn't be reported
   // as breakpoints, then they will set the description above.
-  if (ObjectContainsKey(body, "description")) {
+  if (!ObjectContainsKey(body, "description")) {
     char description[1024];
     if (thread.GetStopDescription(description, sizeof(description))) {
       EmplaceSafeString(body, "description", std::string(description));
@@ -901,6 +944,28 @@ llvm::json::Value CreateThreadStopped(lldb::SBThread &thread,
   body.try_emplace("allThreadsStopped", true);
   event.try_emplace("body", std::move(body));
   return llvm::json::Value(std::move(event));
+}
+
+const char *GetNonNullVariableName(lldb::SBValue v) {
+  const char *name = v.GetName();
+  return name ? name : "<null>";
+}
+
+std::string CreateUniqueVariableNameForDisplay(lldb::SBValue v,
+                                               bool is_name_duplicated) {
+  lldb::SBStream name_builder;
+  name_builder.Print(GetNonNullVariableName(v));
+  if (is_name_duplicated) {
+    lldb::SBDeclaration declaration = v.GetDeclaration();
+    const char *file_name = declaration.GetFileSpec().GetFilename();
+    const uint32_t line = declaration.GetLine();
+
+    if (file_name != nullptr && line > 0)
+      name_builder.Printf(" @ %s:%u", file_name, line);
+    else if (const char *location = v.GetLocation())
+      name_builder.Printf(" @ %s", location);
+  }
+  return name_builder.GetData();
 }
 
 // "Variable": {
@@ -966,14 +1031,46 @@ llvm::json::Value CreateThreadStopped(lldb::SBThread &thread,
 //   "required": [ "name", "value", "variablesReference" ]
 // }
 llvm::json::Value CreateVariable(lldb::SBValue v, int64_t variablesReference,
-                                 int64_t varID, bool format_hex) {
+                                 int64_t varID, bool format_hex,
+                                 bool is_name_duplicated) {
   llvm::json::Object object;
-  auto name = v.GetName();
-  EmplaceSafeString(object, "name", name ? name : "<null>");
+  EmplaceSafeString(object, "name",
+                    CreateUniqueVariableNameForDisplay(v, is_name_duplicated));
+
   if (format_hex)
     v.SetFormat(lldb::eFormatHex);
   SetValueForKey(v, object, "value");
-  auto type_cstr = v.GetType().GetDisplayTypeName();
+  auto type_obj = v.GetType();
+  auto type_cstr = type_obj.GetDisplayTypeName();
+  // If we have a type with many many children, we would like to be able to
+  // give a hint to the IDE that the type has indexed children so that the
+  // request can be broken up in grabbing only a few children at a time. We want
+  // to be careful and only call "v.GetNumChildren()" if we have an array type
+  // or if we have a synthetic child provider. We don't want to call
+  // "v.GetNumChildren()" on all objects as class, struct and union types don't
+  // need to be completed if they are never expanded. So we want to avoid
+  // calling this to only cases where we it makes sense to keep performance high
+  // during normal debugging.
+
+  // If we have an array type, say that it is indexed and provide the number of
+  // children in case we have a huge array. If we don't do this, then we might
+  // take a while to produce all children at onces which can delay your debug
+  // session.
+  const bool is_array = type_obj.IsArrayType();
+  const bool is_synthetic = v.IsSynthetic();
+  if (is_array || is_synthetic) {
+    const auto num_children = v.GetNumChildren();
+    if (is_array) {
+      object.try_emplace("indexedVariables", num_children);
+    } else {
+      // If a type has a synthetic child provider, then the SBType of "v" won't
+      // tell us anything about what might be displayed. So we can check if the
+      // first child's name is "[0]" and then we can say it is indexed.
+      const char *first_child_name = v.GetChildAtIndex(0).GetName();
+      if (first_child_name && strcmp(first_child_name, "[0]") == 0)
+        object.try_emplace("indexedVariables", num_children);
+    }
+  }
   EmplaceSafeString(object, "type", type_cstr ? type_cstr : NO_TYPENAME);
   if (varID != INT64_MAX)
     object.try_emplace("id", varID);
@@ -1001,7 +1098,9 @@ llvm::json::Value CreateCompileUnit(lldb::SBCompileUnit unit) {
 /// See
 /// https://microsoft.github.io/debug-adapter-protocol/specification#Reverse_Requests_RunInTerminal
 llvm::json::Object
-CreateRunInTerminalReverseRequest(const llvm::json::Object &launch_request) {
+CreateRunInTerminalReverseRequest(const llvm::json::Object &launch_request,
+                                  llvm::StringRef debug_adaptor_path,
+                                  llvm::StringRef comm_file) {
   llvm::json::Object reverse_request;
   reverse_request.try_emplace("type", "request");
   reverse_request.try_emplace("command", "runInTerminal");
@@ -1012,10 +1111,13 @@ CreateRunInTerminalReverseRequest(const llvm::json::Object &launch_request) {
   run_in_terminal_args.try_emplace("kind", "integrated");
 
   auto launch_request_arguments = launch_request.getObject("arguments");
-  std::vector<std::string> args = GetStrings(launch_request_arguments, "args");
   // The program path must be the first entry in the "args" field
-  args.insert(args.begin(),
-              GetString(launch_request_arguments, "program").str());
+  std::vector<std::string> args = {
+      debug_adaptor_path.str(), "--comm-file", comm_file.str(),
+      "--launch-target", GetString(launch_request_arguments, "program").str()};
+  std::vector<std::string> target_args =
+      GetStrings(launch_request_arguments, "args");
+  args.insert(args.end(), target_args.begin(), target_args.end());
   run_in_terminal_args.try_emplace("args", args);
 
   const auto cwd = GetString(launch_request_arguments, "cwd");
@@ -1027,7 +1129,7 @@ CreateRunInTerminalReverseRequest(const llvm::json::Object &launch_request) {
   std::vector<std::string> envs = GetStrings(launch_request_arguments, "env");
   llvm::json::Object environment;
   for (const std::string &env : envs) {
-    size_t index = env.find("=");
+    size_t index = env.find('=');
     environment.try_emplace(env.substr(0, index), env.substr(index + 1));
   }
   run_in_terminal_args.try_emplace("env",
@@ -1036,6 +1138,14 @@ CreateRunInTerminalReverseRequest(const llvm::json::Object &launch_request) {
   reverse_request.try_emplace(
       "arguments", llvm::json::Value(std::move(run_in_terminal_args)));
   return reverse_request;
+}
+
+std::string JSONToString(const llvm::json::Value &json) {
+  std::string data;
+  llvm::raw_string_ostream os(data);
+  os << json;
+  os.flush();
+  return data;
 }
 
 } // namespace lldb_vscode

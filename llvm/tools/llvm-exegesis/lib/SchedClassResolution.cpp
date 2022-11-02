@@ -10,6 +10,7 @@
 #include "BenchmarkResult.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/MC/MCAsmInfo.h"
+#include "llvm/MCA/Support.h"
 #include "llvm/Support/FormatVariadic.h"
 #include <limits>
 #include <unordered_set>
@@ -45,7 +46,7 @@ namespace exegesis {
 //
 // Note that in this case, P016 does not contribute any cycles, so it would
 // be removed by this function.
-// FIXME: Move this to MCSubtargetInfo and use it in llvm-mca.
+// FIXME: Merge this with the equivalent in llvm-mca.
 static SmallVector<MCWriteProcResEntry, 8>
 getNonRedundantWriteProcRes(const MCSchedClassDesc &SCDesc,
                             const MCSubtargetInfo &STI) {
@@ -53,12 +54,33 @@ getNonRedundantWriteProcRes(const MCSchedClassDesc &SCDesc,
   const auto &SM = STI.getSchedModel();
   const unsigned NumProcRes = SM.getNumProcResourceKinds();
 
-  // This assumes that the ProcResDescs are sorted in topological order, which
-  // is guaranteed by the tablegen backend.
-  SmallVector<float, 32> ProcResUnitUsage(NumProcRes);
+  // Collect resource masks.
+  SmallVector<uint64_t> ProcResourceMasks(NumProcRes);
+  mca::computeProcResourceMasks(SM, ProcResourceMasks);
+
+  // Sort entries by smaller resources for (basic) topological ordering.
+  using ResourceMaskAndEntry = std::pair<uint64_t, const MCWriteProcResEntry *>;
+  SmallVector<ResourceMaskAndEntry, 8> ResourceMaskAndEntries;
   for (const auto *WPR = STI.getWriteProcResBegin(&SCDesc),
                   *const WPREnd = STI.getWriteProcResEnd(&SCDesc);
        WPR != WPREnd; ++WPR) {
+    uint64_t Mask = ProcResourceMasks[WPR->ProcResourceIdx];
+    ResourceMaskAndEntries.push_back({Mask, WPR});
+  }
+  sort(ResourceMaskAndEntries,
+       [](const ResourceMaskAndEntry &A, const ResourceMaskAndEntry &B) {
+         unsigned popcntA = countPopulation(A.first);
+         unsigned popcntB = countPopulation(B.first);
+         if (popcntA < popcntB)
+           return true;
+         if (popcntA > popcntB)
+           return false;
+         return A.first < B.first;
+       });
+
+  SmallVector<float, 32> ProcResUnitUsage(NumProcRes);
+  for (const ResourceMaskAndEntry &Entry : ResourceMaskAndEntries) {
+    const MCWriteProcResEntry *WPR = Entry.second;
     const MCProcResourceDesc *const ProcResDesc =
         SM.getProcResource(WPR->ProcResourceIdx);
     if (ProcResDesc->SubUnitsIdxBegin == nullptr) {
@@ -286,11 +308,11 @@ std::vector<BenchmarkMeasure> ResolvedSchedClass::getAsPoint(
       uint16_t ProcResIdx = findProcResIdx(STI, Key);
       if (ProcResIdx > 0) {
         // Find the pressure on ProcResIdx `Key`.
-        const auto ProcResPressureIt = std::find_if(
-            IdealizedProcResPressure.begin(), IdealizedProcResPressure.end(),
-            [ProcResIdx](const std::pair<uint16_t, float> &WPR) {
-              return WPR.first == ProcResIdx;
-            });
+        const auto ProcResPressureIt =
+            llvm::find_if(IdealizedProcResPressure,
+                          [ProcResIdx](const std::pair<uint16_t, float> &WPR) {
+                            return WPR.first == ProcResIdx;
+                          });
         Measure.PerInstructionValue =
             ProcResPressureIt == IdealizedProcResPressure.end()
                 ? 0.0

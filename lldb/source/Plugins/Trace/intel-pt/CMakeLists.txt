@@ -9,17 +9,44 @@ include_directories(${LIBIPT_INCLUDE_PATH})
 
 find_library(LIBIPT_LIBRARY ipt PATHS ${LIBIPT_LIBRARY_PATH} REQUIRED)
 
+lldb_tablegen(TraceIntelPTCommandOptions.inc -gen-lldb-option-defs
+  SOURCE TraceIntelPTOptions.td
+  TARGET TraceIntelPTOptionsGen)
+
+lldb_tablegen(TraceIntelPTProperties.inc -gen-lldb-property-defs
+  SOURCE TraceIntelPTProperties.td
+  TARGET TraceIntelPTPropertiesGen)
+
+lldb_tablegen(TraceIntelPTPropertiesEnum.inc -gen-lldb-property-enum-defs
+  SOURCE TraceIntelPTProperties.td
+  TARGET TraceIntelPTPropertiesEnumGen)
+
 add_lldb_library(lldbPluginTraceIntelPT PLUGIN
+  CommandObjectTraceStartIntelPT.cpp
   DecodedThread.cpp
-  IntelPTDecoder.cpp
+  TaskTimer.cpp
+  LibiptDecoder.cpp
+  PerfContextSwitchDecoder.cpp
+  ThreadDecoder.cpp
+  TraceCursorIntelPT.cpp
   TraceIntelPT.cpp
-  TraceIntelPTSessionFileParser.cpp
+  TraceIntelPTJSONStructs.cpp
+  TraceIntelPTMultiCpuDecoder.cpp
+  TraceIntelPTBundleLoader.cpp
+  TraceIntelPTBundleSaver.cpp
 
   LINK_LIBS
     lldbCore
     lldbSymbol
     lldbTarget
+    lldbPluginTraceCommon
     ${LIBIPT_LIBRARY}
   LINK_COMPONENTS
     Support
   )
+
+
+add_dependencies(lldbPluginTraceIntelPT
+  TraceIntelPTOptionsGen
+  TraceIntelPTPropertiesGen
+  TraceIntelPTPropertiesEnumGen)

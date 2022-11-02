@@ -44,9 +44,9 @@
 # LLVM64-NEXT:  0x0000000000000020 PREINIT_ARRAY        0x1000
 # LLVM64-NEXT:  0x0000000000000021 PREINIT_ARRAYSZ      16 (bytes)
 # LLVM64-NEXT:  0x0000000000000022 SYMTAB_SHNDX         0x1000
-# LLVM64-NEXT:  0x0000000000000023 RELRSZ               0x10
+# LLVM64-NEXT:  0x0000000000000023 RELRSZ               16 (bytes)
 # LLVM64-NEXT:  0x0000000000000024 RELR                 0x1000
-# LLVM64-NEXT:  0x0000000000000025 RELRENT              0x4321
+# LLVM64-NEXT:  0x0000000000000025 RELRENT              17185 (bytes)
 # LLVM64-NEXT:  0x000000006000000F ANDROID_REL          0x1000
 # LLVM64-NEXT:  0x0000000060000010 ANDROID_RELSZ        16 (bytes)
 # LLVM64-NEXT:  0x0000000060000011 ANDROID_RELA         0x1000
@@ -109,9 +109,9 @@
 # GNU64-NEXT:  0x0000000000000020 (PREINIT_ARRAY)        0x1000
 # GNU64-NEXT:  0x0000000000000021 (PREINIT_ARRAYSZ)      16 (bytes)
 # GNU64-NEXT:  0x0000000000000022 (SYMTAB_SHNDX)         0x1000
-# GNU64-NEXT:  0x0000000000000023 (RELRSZ)               0x10
+# GNU64-NEXT:  0x0000000000000023 (RELRSZ)               16 (bytes)
 # GNU64-NEXT:  0x0000000000000024 (RELR)                 0x1000
-# GNU64-NEXT:  0x0000000000000025 (RELRENT)              0x4321
+# GNU64-NEXT:  0x0000000000000025 (RELRENT)              17185 (bytes)
 # GNU64-NEXT:  0x000000006000000f (ANDROID_REL)          0x1000
 # GNU64-NEXT:  0x0000000060000010 (ANDROID_RELSZ)        16 (bytes)
 # GNU64-NEXT:  0x0000000060000011 (ANDROID_RELA)         0x1000
@@ -335,9 +335,9 @@ ProgramHeaders:
 # LLVM32-NEXT:  0x00000020 PREINIT_ARRAY        0x1000
 # LLVM32-NEXT:  0x00000021 PREINIT_ARRAYSZ      16 (bytes)
 # LLVM32-NEXT:  0x00000022 SYMTAB_SHNDX         0x1000
-# LLVM32-NEXT:  0x00000023 RELRSZ               0x10
+# LLVM32-NEXT:  0x00000023 RELRSZ               16 (bytes)
 # LLVM32-NEXT:  0x00000024 RELR                 0x1000
-# LLVM32-NEXT:  0x00000025 RELRENT              0x4321
+# LLVM32-NEXT:  0x00000025 RELRENT              17185 (bytes)
 # LLVM32-NEXT:  0x6000000F ANDROID_REL          0x1000
 # LLVM32-NEXT:  0x60000010 ANDROID_RELSZ        16 (bytes)
 # LLVM32-NEXT:  0x60000011 ANDROID_RELA         0x1000
@@ -400,9 +400,9 @@ ProgramHeaders:
 # GNU32-NEXT:  0x00000020 (PREINIT_ARRAY)        0x1000
 # GNU32-NEXT:  0x00000021 (PREINIT_ARRAYSZ)      16 (bytes)
 # GNU32-NEXT:  0x00000022 (SYMTAB_SHNDX)         0x1000
-# GNU32-NEXT:  0x00000023 (RELRSZ)               0x10
+# GNU32-NEXT:  0x00000023 (RELRSZ)               16 (bytes)
 # GNU32-NEXT:  0x00000024 (RELR)                 0x1000
-# GNU32-NEXT:  0x00000025 (RELRENT)              0x4321
+# GNU32-NEXT:  0x00000025 (RELRENT)              17185 (bytes)
 # GNU32-NEXT:  0x6000000f (ANDROID_REL)          0x1000
 # GNU32-NEXT:  0x60000010 (ANDROID_RELSZ)        16 (bytes)
 # GNU32-NEXT:  0x60000011 (ANDROID_RELA)         0x1000
@@ -480,16 +480,17 @@ Sections:
 # RUN:     --check-prefixes=PHENTSIZE-WARN,PHENTSIZE-GNU
 
 # PHENTSIZE-WARN:      warning: '[[FILE]]': unable to read program headers to locate the PT_DYNAMIC segment: invalid e_phentsize: 1
-# PHENTSIZE-WARN-NEXT: warning: '[[FILE]]': Unable to parse DT_HASH: invalid e_phentsize: 1
-# PHENTSIZE-WARN-NEXT: warning: '[[FILE]]': Unable to parse DT_STRTAB: invalid e_phentsize: 1
-# PHENTSIZE-WARN-NEXT: warning: '[[FILE]]': Unable to parse DT_SYMTAB: invalid e_phentsize: 1
-# PHENTSIZE-WARN-NEXT: warning: '[[FILE]]': Unable to parse DT_RELA: invalid e_phentsize: 1
+# PHENTSIZE-WARN-NEXT: warning: '[[FILE]]': unable to parse DT_HASH: invalid e_phentsize: 1
+# PHENTSIZE-WARN-NEXT: warning: '[[FILE]]': unable to parse DT_STRTAB: invalid e_phentsize: 1
+# PHENTSIZE-WARN-NEXT: warning: '[[FILE]]': unable to parse DT_SYMTAB: invalid e_phentsize: 1
+# PHENTSIZE-WARN-NEXT: warning: '[[FILE]]': unable to parse DT_RELA: invalid e_phentsize: 1
 # PHENTSIZE-WARN-NEXT: warning: '[[FILE]]': DT_SYMENT value of 0x987 is not the size of a symbol (0x18)
-# PHENTSIZE-WARN-NEXT: warning: '[[FILE]]': Unable to parse DT_REL: invalid e_phentsize: 1
-# PHENTSIZE-WARN-NEXT: warning: '[[FILE]]': Unable to parse DT_JMPREL: invalid e_phentsize: 1
-# PHENTSIZE-WARN-NEXT: warning: '[[FILE]]': Unable to parse DT_RELR: invalid e_phentsize: 1
-# PHENTSIZE-WARN-NEXT: warning: '[[FILE]]': Unable to parse DT_ANDROID_RELR: invalid e_phentsize: 1
-# PHENTSIZE-WARN-NEXT: warning: '[[FILE]]': Unable to parse DT_GNU_HASH: invalid e_phentsize: 1
+# PHENTSIZE-WARN-NEXT: warning: '[[FILE]]': unable to parse DT_REL: invalid e_phentsize: 1
+# PHENTSIZE-WARN-NEXT: warning: '[[FILE]]': unable to parse DT_JMPREL: invalid e_phentsize: 1
+# PHENTSIZE-WARN-NEXT: warning: '[[FILE]]': unable to parse DT_SYMTAB_SHNDX: invalid e_phentsize: 1
+# PHENTSIZE-WARN-NEXT: warning: '[[FILE]]': unable to parse DT_RELR: invalid e_phentsize: 1
+# PHENTSIZE-WARN-NEXT: warning: '[[FILE]]': unable to parse DT_ANDROID_RELR: invalid e_phentsize: 1
+# PHENTSIZE-WARN-NEXT: warning: '[[FILE]]': unable to parse DT_GNU_HASH: invalid e_phentsize: 1
 
 # PHENTSIZE-LLVM:      warning: '[[FILE]]': string table was not found
 # PHENTSIZE-LLVM-NEXT: LoadName: <?>
@@ -529,9 +530,9 @@ Sections:
 # PHENTSIZE-LLVM-NEXT:   0x0000000000000020 PREINIT_ARRAY        0x1000
 # PHENTSIZE-LLVM-NEXT:   0x0000000000000021 PREINIT_ARRAYSZ      16 (bytes)
 # PHENTSIZE-LLVM-NEXT:   0x0000000000000022 SYMTAB_SHNDX         0x1000
-# PHENTSIZE-LLVM-NEXT:   0x0000000000000023 RELRSZ               0x10
+# PHENTSIZE-LLVM-NEXT:   0x0000000000000023 RELRSZ               16 (bytes)
 # PHENTSIZE-LLVM-NEXT:   0x0000000000000024 RELR                 0x1000
-# PHENTSIZE-LLVM-NEXT:   0x0000000000000025 RELRENT              0x4321
+# PHENTSIZE-LLVM-NEXT:   0x0000000000000025 RELRENT              17185 (bytes)
 # PHENTSIZE-LLVM-NEXT:   0x000000006000000F ANDROID_REL          0x1000
 # PHENTSIZE-LLVM-NEXT:   0x0000000060000010 ANDROID_RELSZ        16 (bytes)
 # PHENTSIZE-LLVM-NEXT:   0x0000000060000011 ANDROID_RELA         0x1000
@@ -595,9 +596,9 @@ Sections:
 # PHENTSIZE-GNU-NEXT:   0x0000000000000020 (PREINIT_ARRAY)        0x1000
 # PHENTSIZE-GNU-NEXT:   0x0000000000000021 (PREINIT_ARRAYSZ)      16 (bytes)
 # PHENTSIZE-GNU-NEXT:   0x0000000000000022 (SYMTAB_SHNDX)         0x1000
-# PHENTSIZE-GNU-NEXT:   0x0000000000000023 (RELRSZ)               0x10
+# PHENTSIZE-GNU-NEXT:   0x0000000000000023 (RELRSZ)               16 (bytes)
 # PHENTSIZE-GNU-NEXT:   0x0000000000000024 (RELR)                 0x1000
-# PHENTSIZE-GNU-NEXT:   0x0000000000000025 (RELRENT)              0x4321
+# PHENTSIZE-GNU-NEXT:   0x0000000000000025 (RELRENT)              17185 (bytes)
 # PHENTSIZE-GNU-NEXT:   0x000000006000000f (ANDROID_REL)          0x1000
 # PHENTSIZE-GNU-NEXT:   0x0000000060000010 (ANDROID_RELSZ)        16 (bytes)
 # PHENTSIZE-GNU-NEXT:   0x0000000060000011 (ANDROID_RELA)         0x1000

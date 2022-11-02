@@ -13,6 +13,7 @@
 
 #include "ObjDumper.h"
 #include "llvm-readobj.h"
+#include "llvm/Object/Archive.h"
 #include "llvm/Object/ObjectFile.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/FormatVariadic.h"
@@ -26,14 +27,75 @@ static inline Error createError(const Twine &Msg) {
   return createStringError(object::object_error::parse_failed, Msg);
 }
 
-ObjDumper::ObjDumper(ScopedPrinter &Writer) : W(Writer) {}
+ObjDumper::ObjDumper(ScopedPrinter &Writer, StringRef ObjName) : W(Writer) {
+  // Dumper reports all non-critical errors as warnings.
+  // It does not print the same warning more than once.
+  WarningHandler = [=](const Twine &Msg) {
+    if (Warnings.insert(Msg.str()).second)
+      reportWarning(createError(Msg), ObjName);
+    return Error::success();
+  };
+}
 
-ObjDumper::~ObjDumper() {
+ObjDumper::~ObjDumper() {}
+
+void ObjDumper::reportUniqueWarning(Error Err) const {
+  reportUniqueWarning(toString(std::move(Err)));
+}
+
+void ObjDumper::reportUniqueWarning(const Twine &Msg) const {
+  cantFail(WarningHandler(Msg),
+           "WarningHandler should always return ErrorSuccess");
 }
 
 static void printAsPrintable(raw_ostream &W, const uint8_t *Start, size_t Len) {
   for (size_t i = 0; i < Len; i++)
     W << (isPrint(Start[i]) ? static_cast<char>(Start[i]) : '.');
+}
+
+void ObjDumper::printAsStringList(StringRef StringContent,
+                                  size_t StringDataOffset) {
+  size_t StrSize = StringContent.size();
+  if (StrSize == 0)
+    return;
+  if (StrSize < StringDataOffset) {
+    reportUniqueWarning("offset (0x" + Twine::utohexstr(StringDataOffset) +
+                        ") is past the end of the contents (size 0x" +
+                        Twine::utohexstr(StrSize) + ")");
+    return;
+  }
+
+  const uint8_t *StrContent = StringContent.bytes_begin();
+  // Some formats contain additional metadata at the start which should not be
+  // interpreted as strings. Skip these bytes, but account for them in the
+  // string offsets.
+  const uint8_t *CurrentWord = StrContent + StringDataOffset;
+  const uint8_t *StrEnd = StringContent.bytes_end();
+
+  while (CurrentWord <= StrEnd) {
+    size_t WordSize = strnlen(reinterpret_cast<const char *>(CurrentWord),
+                              StrEnd - CurrentWord);
+    if (!WordSize) {
+      CurrentWord++;
+      continue;
+    }
+    W.startLine() << format("[%6tx] ", CurrentWord - StrContent);
+    printAsPrintable(W.startLine(), CurrentWord, WordSize);
+    W.startLine() << '\n';
+    CurrentWord += WordSize + 1;
+  }
+}
+
+void ObjDumper::printFileSummary(StringRef FileStr, object::ObjectFile &Obj,
+                                 ArrayRef<std::string> InputFilenames,
+                                 const object::Archive *A) {
+  W.startLine() << "\n";
+  W.printString("File", FileStr);
+  W.printString("Format", Obj.getFileFormatName());
+  W.printString("Arch", Triple::getArchTypeName(Obj.getArch()));
+  W.printString("AddressSize",
+                std::string(formatv("{0}bit", 8 * Obj.getBytesInAddress())));
+  this->printLoadName();
 }
 
 static std::vector<object::SectionRef>
@@ -93,23 +155,7 @@ void ObjDumper::printSectionsAsString(const object::ObjectFile &Obj,
 
     StringRef SectionContent =
         unwrapOrError(Obj.getFileName(), Section.getContents());
-
-    const uint8_t *SecContent = SectionContent.bytes_begin();
-    const uint8_t *CurrentWord = SecContent;
-    const uint8_t *SecEnd = SectionContent.bytes_end();
-
-    while (CurrentWord <= SecEnd) {
-      size_t WordSize = strnlen(reinterpret_cast<const char *>(CurrentWord),
-                                SecEnd - CurrentWord);
-      if (!WordSize) {
-        CurrentWord++;
-        continue;
-      }
-      W.startLine() << format("[%6tx] ", CurrentWord - SecContent);
-      printAsPrintable(W.startLine(), CurrentWord, WordSize);
-      W.startLine() << '\n';
-      CurrentWord += WordSize + 1;
-    }
+    printAsStringList(SectionContent);
   }
 }
 

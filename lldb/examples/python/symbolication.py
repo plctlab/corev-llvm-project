@@ -26,7 +26,6 @@
 #   PYTHONPATH=/path/to/LLDB.framework/Resources/Python ./crashlog.py ~/Library/Logs/DiagnosticReports/a.crash
 #----------------------------------------------------------------------
 
-from __future__ import print_function
 import lldb
 import optparse
 import os
@@ -379,7 +378,7 @@ class Image:
                     return None
                 resolved_path = self.get_resolved_path()
                 self.module = target.AddModule(
-                    resolved_path, str(self.arch), uuid_str, self.symfile)
+                    resolved_path, None, uuid_str, self.symfile)
             if not self.module:
                 return 'error: unable to get module for (%s) "%s"' % (
                     self.arch, self.get_resolved_path())
@@ -437,18 +436,22 @@ class Image:
 
 class Symbolicator:
 
-    def __init__(self, debugger):
-        """A class the represents the information needed to symbolicate addresses in a program"""
+    def __init__(self, debugger=None, target=None, images=list()):
+        """A class the represents the information needed to symbolicate
+        addresses in a program.
+
+        Do not call this initializer directly, but rather use the factory
+        methods.
+        """
         self.debugger = debugger
-        self.target = None
-        self.images = list()  # a list of images to be used when symbolicating
+        self.target = target
+        self.images = images  # a list of images to be used when symbolicating
         self.addr_mask = 0xffffffffffffffff
 
     @classmethod
     def InitWithSBTarget(cls, target):
-        obj = cls()
-        obj.target = target
-        obj.images = list()
+        """Initialize a new Symbolicator with an existing SBTarget."""
+        obj = cls(target=target)
         triple = target.triple
         if triple:
             arch = triple.split('-')[0]
@@ -458,6 +461,13 @@ class Symbolicator:
         for module in target.modules:
             image = Image.InitWithSBTargetAndSBModule(target, module)
             obj.images.append(image)
+        return obj
+
+    @classmethod
+    def InitWithSBDebugger(cls, debugger, images):
+        """Initialize a new Symbolicator with an existing debugger and list of
+        images. The Symbolicator will create the target."""
+        obj = cls(debugger=debugger, images=images)
         return obj
 
     def __str__(self):

@@ -23,6 +23,38 @@ namespace tools {
 
 /// Flang compiler tool.
 class LLVM_LIBRARY_VISIBILITY Flang : public Tool {
+private:
+  /// Extract fortran dialect options from the driver arguments and add them to
+  /// the list of arguments for the generated command/job.
+  ///
+  /// \param [in] Args The list of input driver arguments
+  /// \param [out] CmdArgs The list of output command arguments
+  void addFortranDialectOptions(const llvm::opt::ArgList &Args,
+                                llvm::opt::ArgStringList &CmdArgs) const;
+
+  /// Extract preprocessing options from the driver arguments and add them to
+  /// the preprocessor command arguments.
+  ///
+  /// \param [in] Args The list of input driver arguments
+  /// \param [out] CmdArgs The list of output command arguments
+  void addPreprocessingOptions(const llvm::opt::ArgList &Args,
+                               llvm::opt::ArgStringList &CmdArgs) const;
+
+  /// Extract PIC options from the driver arguments and add them to
+  /// the command arguments.
+  ///
+  /// \param [in] Args The list of input driver arguments
+  /// \param [out] CmdArgs The list of output command arguments
+  void AddPicOptions(const llvm::opt::ArgList &Args,
+                     llvm::opt::ArgStringList &CmdArgs) const;
+
+  /// This method will effectively copy options from \a Args into \a CmdArgs.
+  ///
+  /// \param [in] Args The list of input driver arguments
+  /// \param [out] CmdArgs The list of output command arguments
+  void forwardOptions(const llvm::opt::ArgList &Args,
+                      llvm::opt::ArgStringList &CmdArgs) const;
+
 public:
   Flang(const ToolChain &TC);
   ~Flang() override;

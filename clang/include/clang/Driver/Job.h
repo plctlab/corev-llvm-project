@@ -10,6 +10,7 @@
 #define LLVM_CLANG_DRIVER_JOB_H
 
 #include "clang/Basic/LLVM.h"
+#include "clang/Driver/InputInfo.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SmallVector.h"
@@ -119,8 +120,8 @@ class Command {
   /// argument, which will be the executable).
   llvm::opt::ArgStringList Arguments;
 
-  /// The list of program arguments which are inputs.
-  llvm::opt::ArgStringList InputFilenames;
+  /// The list of program inputs.
+  std::vector<InputInfo> InputInfoList;
 
   /// The list of program arguments which are outputs. May be empty.
   std::vector<std::string> OutputFilenames;
@@ -139,6 +140,12 @@ class Command {
 
   /// See Command::setEnvironment
   std::vector<const char *> Environment;
+
+  /// Optional redirection for stdin, stdout, stderr.
+  std::vector<Optional<std::string>> RedirectFiles;
+
+  /// Information on executable run provided by OS.
+  mutable Optional<llvm::sys::ProcessStatistics> ProcStat;
 
   /// When a response file is needed, we try to put most arguments in an
   /// exclusive file, while others remains as regular command line arguments.
@@ -200,16 +207,26 @@ public:
   ///         from the parent process will be used.
   virtual void setEnvironment(llvm::ArrayRef<const char *> NewEnvironment);
 
+  void setRedirectFiles(const std::vector<Optional<std::string>> &Redirects);
+
+  void replaceArguments(llvm::opt::ArgStringList List) {
+    Arguments = std::move(List);
+  }
+
+  void replaceExecutable(const char *Exe) { Executable = Exe; }
+
   const char *getExecutable() const { return Executable; }
 
   const llvm::opt::ArgStringList &getArguments() const { return Arguments; }
 
-  const llvm::opt::ArgStringList &getInputFilenames() const {
-    return InputFilenames;
-  }
+  const std::vector<InputInfo> &getInputInfos() const { return InputInfoList; }
 
   const std::vector<std::string> &getOutputFilenames() const {
     return OutputFilenames;
+  }
+
+  Optional<llvm::sys::ProcessStatistics> getProcessStatistics() const {
+    return ProcStat;
   }
 
 protected:
@@ -232,26 +249,6 @@ public:
               bool *ExecutionFailed) const override;
 
   void setEnvironment(llvm::ArrayRef<const char *> NewEnvironment) override;
-};
-
-/// Like Command, but with a fallback which is executed in case
-/// the primary command crashes.
-class FallbackCommand : public Command {
-public:
-  FallbackCommand(const Action &Source_, const Tool &Creator_,
-                  ResponseFileSupport ResponseSupport, const char *Executable_,
-                  const llvm::opt::ArgStringList &Arguments_,
-                  ArrayRef<InputInfo> Inputs, ArrayRef<InputInfo> Outputs,
-                  std::unique_ptr<Command> Fallback_);
-
-  void Print(llvm::raw_ostream &OS, const char *Terminator, bool Quote,
-             CrashReportInfo *CrashInfo = nullptr) const override;
-
-  int Execute(ArrayRef<Optional<StringRef>> Redirects, std::string *ErrMsg,
-              bool *ExecutionFailed) const override;
-
-private:
-  std::unique_ptr<Command> Fallback;
 };
 
 /// Like Command, but always pretends that the wrapped command succeeded.

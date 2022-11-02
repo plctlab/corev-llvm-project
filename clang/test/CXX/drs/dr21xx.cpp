@@ -1,12 +1,54 @@
-// RUN: %clang_cc1 -std=c++98 -triple x86_64-unknown-unknown %s -verify -fexceptions -fcxx-exceptions -pedantic-errors
-// RUN: %clang_cc1 -std=c++11 -triple x86_64-unknown-unknown %s -verify -fexceptions -fcxx-exceptions -pedantic-errors
-// RUN: %clang_cc1 -std=c++14 -triple x86_64-unknown-unknown %s -verify -fexceptions -fcxx-exceptions -pedantic-errors
-// RUN: %clang_cc1 -std=c++1z -triple x86_64-unknown-unknown %s -verify -fexceptions -fcxx-exceptions -pedantic-errors
+// RUN: %clang_cc1 -std=c++98 -triple x86_64-unknown-unknown %s -verify -fexceptions -Wno-deprecated-builtins -fcxx-exceptions -pedantic-errors
+// RUN: %clang_cc1 -std=c++11 -triple x86_64-unknown-unknown %s -verify -fexceptions -Wno-deprecated-builtins -fcxx-exceptions -pedantic-errors
+// RUN: %clang_cc1 -std=c++14 -triple x86_64-unknown-unknown %s -verify -fexceptions -Wno-deprecated-builtins -fcxx-exceptions -pedantic-errors
+// RUN: %clang_cc1 -std=c++1z -triple x86_64-unknown-unknown %s -verify -fexceptions -Wno-deprecated-builtins -fcxx-exceptions -pedantic-errors
 
 #if __cplusplus < 201103L
 // expected-error@+1 {{variadic macro}}
 #define static_assert(...) __extension__ _Static_assert(__VA_ARGS__)
 #endif
+
+namespace dr2100 { // dr2100: 12
+  template<const int *P, bool = true> struct X {};
+  template<typename T> struct A {
+    static const int n = 1;
+    int f() {
+      return X<&n>::n; // ok, value-dependent
+    }
+    int g() {
+      static const int n = 2;
+      return X<&n>::n; // ok, value-dependent
+#if __cplusplus < 201702L
+      // expected-error@-2 {{does not have linkage}} expected-note@-3 {{here}}
+#endif
+    }
+  };
+  template<const int *P> struct X<P> {
+#if __cplusplus < 201103L
+    static const int n = 0;
+#else
+    static const int n = *P;
+#endif
+  };
+  int q = A<int>().f() + A<int>().g();
+
+  // Corresponding constructs where the address is not taken are not
+  // value-dependent.
+  template<int N, bool = true> struct Y {};
+  template<typename T> struct B {
+    static const int n = 1;
+    int f() {
+      return Y<n>::declared_later; // expected-error {{no member named 'declared_later'}}
+    }
+    int g() {
+      static const int n = 2;
+      return Y<n>::declared_later; // expected-error {{no member named 'declared_later'}}
+    }
+  };
+  template<int N> struct Y<N> {
+    static const int declared_later = 0;
+  };
+}
 
 namespace dr2103 { // dr2103: yes
   void f() {
@@ -97,6 +139,33 @@ namespace dr2170 { // dr2170: 9
   }
 #endif
 }
+
+namespace dr2171 { // dr2171: 15
+#if __cplusplus >= 201103L
+
+struct NonConstCopy {
+  NonConstCopy(NonConstCopy &) = default;
+  NonConstCopy &operator=(NonConstCopy &) = default;
+};
+
+static_assert(__has_trivial_copy(NonConstCopy), "");
+static_assert(__is_trivially_constructible(NonConstCopy, NonConstCopy &), "");
+static_assert(!__is_trivially_constructible(NonConstCopy, NonConstCopy), "");
+static_assert(!__is_trivially_constructible(NonConstCopy, const NonConstCopy &), "");
+static_assert(!__is_trivially_constructible(NonConstCopy, NonConstCopy &&), "");
+
+static_assert(__has_trivial_assign(NonConstCopy), "");
+static_assert(__is_trivially_assignable(NonConstCopy &, NonConstCopy &), "");
+static_assert(!__is_trivially_assignable(NonConstCopy &, const NonConstCopy &), "");
+static_assert(!__is_trivially_assignable(NonConstCopy &, NonConstCopy), "");
+static_assert(!__is_trivially_assignable(NonConstCopy &, NonConstCopy &&), "");
+static_assert(__is_trivially_assignable(NonConstCopy &&, NonConstCopy &), "");
+static_assert(!__is_trivially_assignable(NonConstCopy &&, const NonConstCopy &), "");
+static_assert(!__is_trivially_assignable(NonConstCopy &&, NonConstCopy), "");
+static_assert(!__is_trivially_assignable(NonConstCopy &&, NonConstCopy &&), "");
+
+#endif
+} // namespace dr2171
 
 namespace dr2180 { // dr2180: yes
   class A {

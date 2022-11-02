@@ -99,9 +99,7 @@ public:
     return true;
   }
 
-  bool match(StringRef S) override {
-    return S.find(Text) != StringRef::npos;
-  }
+  bool match(StringRef S) override { return S.contains(Text); }
 };
 
 /// RegexDirective - Directive with regular-expression matching.
@@ -543,9 +541,8 @@ static bool ParseDirective(StringRef S, ExpectedData *ED, SourceManager &SM,
           ExpectedLoc = SourceLocation();
         } else {
           // Lookup file via Preprocessor, like a #include.
-          const DirectoryLookup *CurDir;
           Optional<FileEntryRef> File =
-              PP->LookupFile(Pos, Filename, false, nullptr, nullptr, CurDir,
+              PP->LookupFile(Pos, Filename, false, nullptr, nullptr, nullptr,
                              nullptr, nullptr, nullptr, nullptr, nullptr);
           if (!File) {
             Diags.Report(Pos.getLocWithOffset(PH.C - PH.Begin),
@@ -554,15 +551,15 @@ static bool ParseDirective(StringRef S, ExpectedData *ED, SourceManager &SM,
             continue;
           }
 
-          const FileEntry *FE = &File->getFileEntry();
-          if (SM.translateFile(FE).isInvalid())
-            SM.createFileID(FE, Pos, SrcMgr::C_User);
+          FileID FID = SM.translateFile(*File);
+          if (FID.isInvalid())
+            FID = SM.createFileID(*File, Pos, SrcMgr::C_User);
 
           if (PH.Next(Line) && Line > 0)
-            ExpectedLoc = SM.translateFileLineCol(FE, Line, 1);
+            ExpectedLoc = SM.translateLineCol(FID, Line, 1);
           else if (PH.Next("*")) {
             MatchAnyLine = true;
-            ExpectedLoc = SM.translateFileLineCol(FE, 1, 1);
+            ExpectedLoc = SM.translateLineCol(FID, 1, 1);
           }
         }
       } else if (PH.Next("*")) {

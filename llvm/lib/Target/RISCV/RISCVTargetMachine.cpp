@@ -11,51 +11,74 @@
 //===----------------------------------------------------------------------===//
 
 #include "RISCVTargetMachine.h"
+#include "MCTargetDesc/RISCVBaseInfo.h"
 #include "RISCV.h"
+#include "RISCVMachineFunctionInfo.h"
+#include "RISCVMacroFusion.h"
 #include "RISCVTargetObjectFile.h"
 #include "RISCVTargetTransformInfo.h"
 #include "TargetInfo/RISCVTargetInfo.h"
-#include "Utils/RISCVBaseInfo.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/CodeGen/GlobalISel/IRTranslator.h"
 #include "llvm/CodeGen/GlobalISel/InstructionSelect.h"
 #include "llvm/CodeGen/GlobalISel/Legalizer.h"
 #include "llvm/CodeGen/GlobalISel/RegBankSelect.h"
+#include "llvm/CodeGen/MIRParser/MIParser.h"
+#include "llvm/CodeGen/MIRYamlMapping.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/InitializePasses.h"
+#include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/FormattedStream.h"
-#include "llvm/Support/TargetRegistry.h"
 #include "llvm/Target/TargetOptions.h"
+#include "llvm/Transforms/IPO.h"
 using namespace llvm;
+
+static cl::opt<bool> EnableRedundantCopyElimination(
+    "riscv-enable-copyelim",
+    cl::desc("Enable the redundant copy elimination pass"), cl::init(true),
+    cl::Hidden);
+
+// FIXME: Unify control over GlobalMerge.
+static cl::opt<cl::boolOrDefault>
+    EnableGlobalMerge("riscv-enable-global-merge", cl::Hidden,
+                      cl::desc("Enable the global merge pass"));
+
+static cl::opt<bool>
+    EnableMachineCombiner("riscv-enable-machine-combiner",
+                          cl::desc("Enable the machine combiner pass"),
+                          cl::init(true), cl::Hidden);
 
 extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeRISCVTarget() {
   RegisterTargetMachine<RISCVTargetMachine> X(getTheRISCV32Target());
   RegisterTargetMachine<RISCVTargetMachine> Y(getTheRISCV64Target());
-  auto PR = PassRegistry::getPassRegistry();
+  auto *PR = PassRegistry::getPassRegistry();
   initializeGlobalISel(*PR);
+  initializeRISCVMakeCompressibleOptPass(*PR);
+  initializeRISCVGatherScatterLoweringPass(*PR);
+  initializeRISCVCodeGenPreparePass(*PR);
+  initializeRISCVMergeBaseOffsetOptPass(*PR);
+  initializeRISCVSExtWRemovalPass(*PR);
+  initializeRISCVPreRAExpandPseudoPass(*PR);
   initializeRISCVExpandPseudoPass(*PR);
   initializeRISCVCoreVHwlpBlocksPass(*PR);
   initializeRISCVExpandCoreVHwlpPseudoPass(*PR);
+  initializeRISCVInsertVSETVLIPass(*PR);
 }
 
 static StringRef computeDataLayout(const Triple &TT) {
-  if (TT.isArch64Bit()) {
-    return "e-m:e-p:64:64-i64:64-i128:128-n64-S128";
-  } else {
-    assert(TT.isArch32Bit() && "only RV32 and RV64 are currently supported");
-    return "e-m:e-p:32:32-i64:64-n32-S128";
-  }
+  if (TT.isArch64Bit())
+    return "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128";
+  assert(TT.isArch32Bit() && "only RV32 and RV64 are currently supported");
+  return "e-m:e-p:32:32-i64:64-n32-S128";
 }
 
 static Reloc::Model getEffectiveRelocModel(const Triple &TT,
                                            Optional<Reloc::Model> RM) {
-  if (!RM.hasValue())
-    return Reloc::Static;
-  return *RM;
+  return RM.value_or(Reloc::Static);
 }
 
 RISCVTargetMachine::RISCVTargetMachine(const Target &T, const Triple &TT,
@@ -72,6 +95,7 @@ RISCVTargetMachine::RISCVTargetMachine(const Target &T, const Triple &TT,
 
   // RISC-V supports the MachineOutliner.
   setMachineOutliner(true);
+  setSupportsDefaultOutlining(true);
 }
 
 const RISCVSubtarget *
@@ -109,8 +133,17 @@ RISCVTargetMachine::getSubtargetImpl(const Function &F) const {
 }
 
 TargetTransformInfo
-RISCVTargetMachine::getTargetTransformInfo(const Function &F) {
+RISCVTargetMachine::getTargetTransformInfo(const Function &F) const {
   return TargetTransformInfo(RISCVTTIImpl(this, F));
+}
+
+// A RISC-V hart has a single byte-addressable address space of 2^XLEN bytes
+// for all memory accesses, so it is reasonable to assume that an
+// implementation has no-op address space casts. If an implementation makes a
+// change to this, they can override it here.
+bool RISCVTargetMachine::isNoopAddrSpaceCast(unsigned SrcAS,
+                                             unsigned DstAS) const {
+  return true;
 }
 
 namespace {
@@ -123,7 +156,30 @@ public:
     return getTM<RISCVTargetMachine>();
   }
 
+  ScheduleDAGInstrs *
+  createMachineScheduler(MachineSchedContext *C) const override {
+    const RISCVSubtarget &ST = C->MF->getSubtarget<RISCVSubtarget>();
+    if (ST.hasMacroFusion()) {
+      ScheduleDAGMILive *DAG = createGenericSchedLive(C);
+      DAG->addMutation(createRISCVMacroFusionDAGMutation());
+      return DAG;
+    }
+    return nullptr;
+  }
+
+  ScheduleDAGInstrs *
+  createPostMachineScheduler(MachineSchedContext *C) const override {
+    const RISCVSubtarget &ST = C->MF->getSubtarget<RISCVSubtarget>();
+    if (ST.hasMacroFusion()) {
+      ScheduleDAGMI *DAG = createGenericSchedPostRA(C);
+      DAG->addMutation(createRISCVMacroFusionDAGMutation());
+      return DAG;
+    }
+    return nullptr;
+  }
+
   void addIRPasses() override;
+  bool addPreISel() override;
   bool addInstSelector() override;
   bool addIRTranslator() override;
   bool addLegalizeMachineIR() override;
@@ -132,10 +188,12 @@ public:
   void addPreEmitPass() override;
   void addPreEmitPass2() override;
   void addPreSched2() override;
+  void addMachineSSAOptimization() override;
   void addPreRegAlloc() override;
   bool addPreISel() override;
+  void addPostRegAlloc() override;
 };
-}
+} // namespace
 
 TargetPassConfig *RISCVTargetMachine::createPassConfig(PassManagerBase &PM) {
   return new RISCVPassConfig(*this, PM);
@@ -143,11 +201,35 @@ TargetPassConfig *RISCVTargetMachine::createPassConfig(PassManagerBase &PM) {
 
 void RISCVPassConfig::addIRPasses() {
   addPass(createAtomicExpandPass());
+
+  if (getOptLevel() != CodeGenOpt::None)
+    addPass(createRISCVGatherScatterLoweringPass());
+
+  if (getOptLevel() != CodeGenOpt::None)
+    addPass(createRISCVCodeGenPreparePass());
+
   TargetPassConfig::addIRPasses();
 }
 
+bool RISCVPassConfig::addPreISel() {
+  if (TM->getOptLevel() != CodeGenOpt::None) {
+    // Add a barrier before instruction selection so that we will not get
+    // deleted block address after enabling default outlining. See D99707 for
+    // more details.
+    addPass(createBarrierNoopPass());
+  }
+
+  if (EnableGlobalMerge == cl::BOU_TRUE) {
+    addPass(createGlobalMergePass(TM, /* MaxOffset */ 2047,
+                                  /* OnlyOptimizeForSize */ false,
+                                  /* MergeExternalByDefault */ true));
+  }
+
+  return false;
+}
+
 bool RISCVPassConfig::addInstSelector() {
-  addPass(createRISCVISelDag(getRISCVTargetMachine()));
+  addPass(createRISCVISelDag(getRISCVTargetMachine(), getOptLevel()));
 
   return false;
 }
@@ -168,13 +250,16 @@ bool RISCVPassConfig::addRegBankSelect() {
 }
 
 bool RISCVPassConfig::addGlobalInstructionSelect() {
-  addPass(new InstructionSelect());
+  addPass(new InstructionSelect(getOptLevel()));
   return false;
 }
 
 void RISCVPassConfig::addPreSched2() {}
 
-void RISCVPassConfig::addPreEmitPass() { addPass(&BranchRelaxationPassID); }
+void RISCVPassConfig::addPreEmitPass() {
+  addPass(&BranchRelaxationPassID);
+  addPass(createRISCVMakeCompressibleOptPass());
+}
 
 void RISCVPassConfig::addPreEmitPass2() {
   addPass(createRISCVExpandPseudoPass());
@@ -187,14 +272,53 @@ void RISCVPassConfig::addPreEmitPass2() {
   }
 }
 
+void RISCVPassConfig::addMachineSSAOptimization() {
+  TargetPassConfig::addMachineSSAOptimization();
+  if (EnableMachineCombiner)
+    addPass(&MachineCombinerID);
+
+  if (TM->getTargetTriple().getArch() == Triple::riscv64)
+    addPass(createRISCVSExtWRemovalPass());
+}
+
 void RISCVPassConfig::addPreRegAlloc() {
-  addPass(createRISCVMergeBaseOffsetOptPass());
-  addPass(createRISCVCoreVHwlpBlocksPass());
+  addPass(createRISCVPreRAExpandPseudoPass());
+  if (TM->getOptLevel() != CodeGenOpt::None) {
+    addPass(createRISCVMergeBaseOffsetOptPass());
+    //liaochunyu
+    addPass(createRISCVCoreVHwlpBlocksPass());
+  }
+  addPass(createRISCVInsertVSETVLIPass());
+}
+
+void RISCVPassConfig::addPostRegAlloc() {
+  if (TM->getOptLevel() != CodeGenOpt::None && EnableRedundantCopyElimination)
+    addPass(createRISCVRedundantCopyEliminationPass());
 }
 
 bool RISCVPassConfig::addPreISel() {
   if (TM->getOptLevel() != CodeGenOpt::None) {
     addPass(createHardwareLoopsPass());
   }
+  return false;
+}
+
+yaml::MachineFunctionInfo *
+RISCVTargetMachine::createDefaultFuncInfoYAML() const {
+  return new yaml::RISCVMachineFunctionInfo();
+}
+
+yaml::MachineFunctionInfo *
+RISCVTargetMachine::convertFuncInfoToYAML(const MachineFunction &MF) const {
+  const auto *MFI = MF.getInfo<RISCVMachineFunctionInfo>();
+  return new yaml::RISCVMachineFunctionInfo(*MFI);
+}
+
+bool RISCVTargetMachine::parseMachineFunctionInfo(
+    const yaml::MachineFunctionInfo &MFI, PerFunctionMIParsingState &PFS,
+    SMDiagnostic &Error, SMRange &SourceRange) const {
+  const auto &YamlMFI =
+      static_cast<const yaml::RISCVMachineFunctionInfo &>(MFI);
+  PFS.MF.getInfo<RISCVMachineFunctionInfo>()->initializeBaseYamlFields(YamlMFI);
   return false;
 }

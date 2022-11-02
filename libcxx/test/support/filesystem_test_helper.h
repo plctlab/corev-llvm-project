@@ -14,11 +14,13 @@
 #endif
 
 #include <cassert>
+#include <chrono>
 #include <cstdio> // for printf
 #include <string>
-#include <chrono>
+#include <system_error>
 #include <vector>
 
+#include "make_string.h"
 #include "test_macros.h"
 #include "rapid-cxx-test.h"
 #include "format_string.h"
@@ -72,12 +74,8 @@ namespace utils {
     using ::ftruncate;
     inline int symlink(const char* oldname, const char* newname, bool is_dir) { (void)is_dir; return ::symlink(oldname, newname); }
     using ::link;
-    inline int setenv(const char *var, const char *val, int overwrite) {
-        return ::setenv(var, val, overwrite);
-    }
-    inline int unsetenv(const char *var) {
-        return ::unsetenv(var);
-    }
+    using ::setenv;
+    using ::unsetenv;
     inline bool space(std::string path, std::uintmax_t &capacity,
                       std::uintmax_t &free, std::uintmax_t &avail) {
         struct statvfs expect;
@@ -142,11 +140,23 @@ struct scoped_test_env
         int ret = std::system(cmd.c_str());
         assert(ret == 0);
 #else
+#if defined(__MVS__)
+        // The behaviour of chmod -R on z/OS prevents recursive
+        // permission change for directories that do not have read permission.
+        std::string cmd = "find  " + test_root.string() + " -exec chmod 777 {} \\;";
+#else
         std::string cmd = "chmod -R 777 " + test_root.string();
+#endif // defined(__MVS__)
         int ret = std::system(cmd.c_str());
+#if !defined(_AIX)
+        // On AIX the chmod command will return non-zero when trying to set
+        // the permissions on a directory that contains a bad symlink. This triggers
+        // the assert, despite being able to delete everything with the following
+        // `rm -r` command.
         assert(ret == 0);
+#endif
 
-        cmd = "rm -r " + test_root.string();
+        cmd = "rm -rf " + test_root.string();
         ret = std::system(cmd.c_str());
         assert(ret == 0);
 #endif
@@ -176,7 +186,7 @@ struct scoped_test_env
     // 2GB.
     std::string create_file(fs::path filename_path, uintmax_t size = 0) {
         std::string filename = filename_path.string();
-#if defined(__LP64__) || defined(_WIN32)
+#if defined(__LP64__) || defined(_WIN32) || defined(__MVS__)
         auto large_file_fopen = fopen;
         auto large_file_ftruncate = utils::ftruncate;
         using large_file_offset_t = off_t;
@@ -188,16 +198,18 @@ struct scoped_test_env
 
         filename = sanitize_path(std::move(filename));
 
-        if (size > std::numeric_limits<large_file_offset_t>::max()) {
+        if (size >
+            static_cast<typename std::make_unsigned<large_file_offset_t>::type>(
+                std::numeric_limits<large_file_offset_t>::max())) {
             fprintf(stderr, "create_file(%s, %ju) too large\n",
                     filename.c_str(), size);
             abort();
         }
 
-#ifndef _WIN32
-#define FOPEN_CLOEXEC_FLAG "e"
+#if defined(_WIN32) || defined(__MVS__)
+#  define FOPEN_CLOEXEC_FLAG ""
 #else
-#define FOPEN_CLOEXEC_FLAG ""
+#  define FOPEN_CLOEXEC_FLAG "e"
 #endif
         FILE* file = large_file_fopen(filename.c_str(), "w" FOPEN_CLOEXEC_FLAG);
         if (file == nullptr) {
@@ -226,10 +238,10 @@ struct scoped_test_env
         return filename;
     }
 
-    std::string create_symlink(fs::path source_path,
-                               fs::path to_path,
-                               bool sanitize_source = true,
-                               bool is_dir = false) {
+    std::string create_file_dir_symlink(fs::path source_path,
+                                        fs::path to_path,
+                                        bool sanitize_source = true,
+                                        bool is_dir = false) {
         std::string source = source_path.string();
         std::string to = to_path.string();
         if (sanitize_source)
@@ -238,6 +250,20 @@ struct scoped_test_env
         int ret = utils::symlink(source.c_str(), to.c_str(), is_dir);
         assert(ret == 0);
         return to;
+    }
+
+    std::string create_symlink(fs::path source_path,
+                               fs::path to_path,
+                               bool sanitize_source = true) {
+        return create_file_dir_symlink(source_path, to_path, sanitize_source,
+                                       false);
+    }
+
+    std::string create_directory_symlink(fs::path source_path,
+                                         fs::path to_path,
+                                         bool sanitize_source = true) {
+        return create_file_dir_symlink(source_path, to_path, sanitize_source,
+                                       true);
     }
 
     std::string create_hardlink(fs::path source_path, fs::path to_path) {
@@ -283,14 +309,17 @@ private:
     // sharing the same cwd). However, it is fairly unlikely to happen as
     // we generally don't use scoped_test_env from multiple threads, so
     // this is deemed acceptable.
+    // The cwd.filename() itself isn't unique across all tests in the suite,
+    // so start the numbering from a hash of the full cwd, to avoid
+    // different tests interfering with each other.
     static inline fs::path available_cwd_path() {
         fs::path const cwd = utils::getcwd();
         fs::path const tmp = fs::temp_directory_path();
-        fs::path const base = tmp / cwd.filename();
-        int i = 0;
-        fs::path p = base / ("static_env." + std::to_string(i));
+        std::string base = cwd.filename().string();
+        size_t i = std::hash<std::string>()(cwd.string());
+        fs::path p = tmp / (base + "-static_env." + std::to_string(i));
         while (utils::exists(p.string())) {
-            p = fs::path(base) / ("static_env." + std::to_string(++i));
+            p = tmp / (base + "-static_env." + std::to_string(++i));
         }
         return p;
     }
@@ -299,20 +328,20 @@ private:
 /// This class generates the following tree:
 ///
 ///     static_test_env
-///     ├── bad_symlink -> dne
-///     ├── dir1
-///     │   ├── dir2
-///     │   │   ├── afile3
-///     │   │   ├── dir3
-///     │   │   │   └── file5
-///     │   │   ├── file4
-///     │   │   └── symlink_to_dir3 -> dir3
-///     │   ├── file1
-///     │   └── file2
-///     ├── empty_file
-///     ├── non_empty_file
-///     ├── symlink_to_dir -> dir1
-///     └── symlink_to_empty_file -> empty_file
+///     |-- bad_symlink -> dne
+///     |-- dir1
+///     |   |-- dir2
+///     |   |   |-- afile3
+///     |   |   |-- dir3
+///     |   |   |   `-- file5
+///     |   |   |-- file4
+///     |   |   `-- symlink_to_dir3 -> dir3
+///     |   `-- file1
+///     |   `-- file2
+///     |-- empty_file
+///     |-- non_empty_file
+///     |-- symlink_to_dir -> dir1
+///     `-- symlink_to_empty_file -> empty_file
 ///
 class static_test_env {
     scoped_test_env env_;
@@ -325,12 +354,12 @@ public:
         env_.create_dir("dir1/dir2/dir3");
         env_.create_file("dir1/dir2/dir3/file5");
         env_.create_file("dir1/dir2/file4");
-        env_.create_symlink("dir3", "dir1/dir2/symlink_to_dir3", false, true);
+        env_.create_directory_symlink("dir3", "dir1/dir2/symlink_to_dir3", false);
         env_.create_file("dir1/file1");
         env_.create_file("dir1/file2", 42);
         env_.create_file("empty_file");
         env_.create_file("non_empty_file", 42);
-        env_.create_symlink("dir1", "symlink_to_dir", false, true);
+        env_.create_directory_symlink("dir1", "symlink_to_dir", false);
         env_.create_symlink("empty_file", "symlink_to_empty_file", false);
     }
 
@@ -417,20 +446,6 @@ struct CWDGuard {
 };
 
 // Misc test types
-
-#define MKSTR(Str) {Str, TEST_CONCAT(L, Str), TEST_CONCAT(u, Str), TEST_CONCAT(U, Str)}
-
-struct MultiStringType {
-  const char* s;
-  const wchar_t* w;
-  const char16_t* u16;
-  const char32_t* u32;
-
-  operator const char* () const { return s; }
-  operator const wchar_t* () const { return w; }
-  operator const char16_t* () const { return u16; }
-  operator const char32_t* () const { return u32; }
-};
 
 const MultiStringType PathList[] = {
         MKSTR(""),
@@ -576,7 +591,7 @@ inline bool ErrorIs(const std::error_code& ec, std::errc First, ErrcT... Rest) {
 
 // Provide our own Sleep routine since std::this_thread::sleep_for is not
 // available in single-threaded mode.
-void SleepFor(std::chrono::seconds dur) {
+template <class Dur> void SleepFor(Dur dur) {
     using namespace std::chrono;
 #if defined(_LIBCPP_HAS_NO_MONOTONIC_CLOCK)
     using Clock = system_clock;
@@ -590,6 +605,29 @@ void SleepFor(std::chrono::seconds dur) {
 
 inline bool PathEq(fs::path const& LHS, fs::path const& RHS) {
   return LHS.native() == RHS.native();
+}
+
+inline bool PathEqIgnoreSep(fs::path LHS, fs::path RHS) {
+  LHS.make_preferred();
+  RHS.make_preferred();
+  return LHS.native() == RHS.native();
+}
+
+inline fs::perms NormalizeExpectedPerms(fs::perms P) {
+#ifdef _WIN32
+  // On Windows, fs::perms only maps down to one bit stored in the filesystem,
+  // a boolean readonly flag.
+  // Normalize permissions to the format it gets returned; all fs entries are
+  // read+exec for all users; writable ones also have the write bit set for
+  // all users.
+  P |= fs::perms::owner_read | fs::perms::group_read | fs::perms::others_read;
+  P |= fs::perms::owner_exec | fs::perms::group_exec | fs::perms::others_exec;
+  fs::perms Write =
+      fs::perms::owner_write | fs::perms::group_write | fs::perms::others_write;
+  if ((P & Write) != fs::perms::none)
+    P |= Write;
+#endif
+  return P;
 }
 
 struct ExceptionChecker {
@@ -629,9 +667,7 @@ struct ExceptionChecker {
       additional_msg = opt_message + ": ";
     }
     auto transform_path = [](const fs::path& p) {
-      if (p.native().empty())
-        return std::string("\"\"");
-      return p.string();
+      return "\"" + p.string() + "\"";
     };
     std::string format = [&]() -> std::string {
       switch (num_paths) {
@@ -666,4 +702,35 @@ struct ExceptionChecker {
 
 };
 
-#endif /* FILESYSTEM_TEST_HELPER_HPP */
+inline fs::path GetWindowsInaccessibleDir() {
+  // Only makes sense on windows, but the code can be compiled for
+  // any platform.
+  const fs::path dir("C:\\System Volume Information");
+  std::error_code ec;
+  const fs::path root("C:\\");
+  for (const auto &ent : fs::directory_iterator(root, ec)) {
+    if (ent != dir)
+      continue;
+    // Basic sanity checks on the directory_entry
+    if (!ent.exists() || !ent.is_directory()) {
+      fprintf(stderr, "The expected inaccessible directory \"%s\" was found "
+                      "but doesn't behave as expected, skipping tests "
+                      "regarding it\n", dir.string().c_str());
+      return fs::path();
+    }
+    // Check that it indeed is inaccessible as expected
+    (void)fs::exists(ent, ec);
+    if (!ec) {
+      fprintf(stderr, "The expected inaccessible directory \"%s\" was found "
+                      "but seems to be accessible, skipping tests "
+                      "regarding it\n", dir.string().c_str());
+      return fs::path();
+    }
+    return ent;
+  }
+  fprintf(stderr, "No inaccessible directory \"%s\" found, skipping tests "
+                  "regarding it\n", dir.string().c_str());
+  return fs::path();
+}
+
+#endif /* FILESYSTEM_TEST_HELPER_H */

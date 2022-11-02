@@ -122,6 +122,7 @@ Marshaller::fromProtobuf(const RefsRequest *Message) {
     Req.Filter = clangd::RefKind::All;
   if (Message->limit())
     Req.Limit = Message->limit();
+  Req.WantContainer = Message->want_container();
   return Req;
 }
 
@@ -161,7 +162,8 @@ llvm::Expected<clangd::Symbol> Marshaller::fromProtobuf(const Symbol &Message) {
     return Declaration.takeError();
   Result.CanonicalDeclaration = *Declaration;
   Result.References = Message.references();
-  Result.Origin = static_cast<clangd::SymbolOrigin>(Message.origin());
+  // Overwrite symbol origin: it's coming from remote index.
+  Result.Origin = clangd::SymbolOrigin::Remote;
   Result.Signature = Message.signature();
   Result.TemplateSpecializationArgs = Message.template_specialization_args();
   Result.CompletionSnippetSuffix = Message.completion_snippet_suffix();
@@ -238,6 +240,7 @@ RefsRequest Marshaller::toProtobuf(const clangd::RefsRequest &From) {
   RPCRequest.set_filter(static_cast<uint32_t>(From.Filter));
   if (From.Limit)
     RPCRequest.set_limit(*From.Limit);
+  RPCRequest.set_want_container(From.WantContainer);
   return RPCRequest;
 }
 
@@ -268,7 +271,6 @@ llvm::Expected<Symbol> Marshaller::toProtobuf(const clangd::Symbol &From) {
     return Declaration.takeError();
   *Result.mutable_canonical_declaration() = *Declaration;
   Result.set_references(From.References);
-  Result.set_origin(static_cast<uint32_t>(From.Origin));
   Result.set_signature(From.Signature.str());
   Result.set_template_specialization_args(
       From.TemplateSpecializationArgs.str());

@@ -17,6 +17,7 @@ add_clang_library(clangTidy
   ClangTidyProfiling.cpp
   ExpandModularHeadersPPCallbacks.cpp
   GlobList.cpp
+  NoLintDirectiveHandler.cpp
 
   DEPENDS
   ClangSACheckers
@@ -55,6 +56,7 @@ add_subdirectory(altera)
 add_subdirectory(boost)
 add_subdirectory(bugprone)
 add_subdirectory(cert)
+add_subdirectory(concurrency)
 add_subdirectory(cppcoreguidelines)
 add_subdirectory(darwin)
 add_subdirectory(fuchsia)
@@ -81,6 +83,7 @@ set(ALL_CLANG_TIDY_CHECKS
   clangTidyBoostModule
   clangTidyBugproneModule
   clangTidyCERTModule
+  clangTidyConcurrencyModule
   clangTidyCppCoreGuidelinesModule
   clangTidyDarwinModule
   clangTidyFuchsiaModule
@@ -111,7 +114,7 @@ add_subdirectory(utils)
 
 if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
   install(DIRECTORY .
-    DESTINATION include/clang-tidy
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/clang-tidy"
     COMPONENT clang-tidy-headers
     FILES_MATCHING
     PATTERN "*.h"

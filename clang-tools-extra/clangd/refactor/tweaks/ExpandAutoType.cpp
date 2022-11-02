@@ -7,15 +7,12 @@
 //===----------------------------------------------------------------------===//
 #include "refactor/Tweak.h"
 
-#include "XRefs.h"
 #include "support/Logger.h"
 #include "clang/AST/Type.h"
 #include "clang/AST/TypeLoc.h"
 #include "clang/Basic/LLVM.h"
 #include "llvm/ADT/None.h"
 #include "llvm/ADT/Optional.h"
-#include "llvm/ADT/StringExtras.h"
-#include "llvm/Support/Debug.h"
 #include "llvm/Support/Error.h"
 #include <AST.h>
 #include <climits>
@@ -45,8 +42,7 @@ public:
   std::string title() const override;
 
 private:
-  /// Cache the AutoTypeLoc, so that we do not need to search twice.
-  llvm::Optional<clang::AutoTypeLoc> CachedLocation;
+  SourceRange AutoRange;
 };
 
 REGISTER_TWEAK(ExpandAutoType)
@@ -63,34 +59,71 @@ bool isStructuredBindingType(const SelectionTree::Node *N) {
   return N && N->ASTNode.get<DecompositionDecl>();
 }
 
-bool ExpandAutoType::prepare(const Selection& Inputs) {
-  CachedLocation = llvm::None;
-  if (auto *Node = Inputs.ASTSelection.commonAncestor()) {
-    if (auto *TypeNode = Node->ASTNode.get<TypeLoc>()) {
-      if (const AutoTypeLoc Result = TypeNode->getAs<AutoTypeLoc>()) {
-        // Code in apply() does handle 'decltype(auto)' yet.
-        if (!Result.getTypePtr()->isDecltypeAuto() &&
-            !isStructuredBindingType(Node))
-          CachedLocation = Result;
+// Returns true iff Node is a lambda, and thus should not be expanded. Loc is
+// the location of the auto type.
+bool isDeducedAsLambda(const SelectionTree::Node *Node, SourceLocation Loc) {
+  // getDeducedType() does a traversal, which we want to avoid in prepare().
+  // But at least check this isn't auto x = []{...};, which can't ever be
+  // expanded.
+  // (It would be nice if we had an efficient getDeducedType(), instead).
+  for (const auto *It = Node; It; It = It->Parent) {
+    if (const auto *DD = It->ASTNode.get<DeclaratorDecl>()) {
+      if (DD->getTypeSourceInfo() &&
+          DD->getTypeSourceInfo()->getTypeLoc().getBeginLoc() == Loc) {
+        if (auto *RD = DD->getType()->getAsRecordDecl())
+          return RD->isLambda();
       }
     }
   }
-  return (bool) CachedLocation;
+  return false;
+}
+
+// Returns true iff "auto" in Node is really part of the template parameter,
+// which we cannot expand.
+bool isTemplateParam(const SelectionTree::Node *Node) {
+  if (Node->Parent)
+    if (Node->Parent->ASTNode.get<NonTypeTemplateParmDecl>())
+      return true;
+  return false;
+}
+
+bool ExpandAutoType::prepare(const Selection &Inputs) {
+  if (auto *Node = Inputs.ASTSelection.commonAncestor()) {
+    if (auto *TypeNode = Node->ASTNode.get<TypeLoc>()) {
+      if (const AutoTypeLoc Result = TypeNode->getAs<AutoTypeLoc>()) {
+        if (!isStructuredBindingType(Node) &&
+            !isDeducedAsLambda(Node, Result.getBeginLoc()) &&
+            !isTemplateParam(Node))
+          AutoRange = Result.getSourceRange();
+      }
+      if (auto TTPAuto = TypeNode->getAs<TemplateTypeParmTypeLoc>()) {
+        // We exclude concept constraints for now, as the SourceRange is wrong.
+        // void foo(C auto x) {};
+        //            ^^^^
+        // TTPAuto->getSourceRange only covers "auto", not "C auto".
+        if (TTPAuto.getDecl()->isImplicit() &&
+            !TTPAuto.getDecl()->hasTypeConstraint())
+          AutoRange = TTPAuto.getSourceRange();
+      }
+    }
+  }
+
+  return AutoRange.isValid();
 }
 
 Expected<Tweak::Effect> ExpandAutoType::apply(const Selection& Inputs) {
   auto &SrcMgr = Inputs.AST->getSourceManager();
 
-  llvm::Optional<clang::QualType> DeducedType = getDeducedType(
-      Inputs.AST->getASTContext(), CachedLocation->getBeginLoc());
+  llvm::Optional<clang::QualType> DeducedType =
+      getDeducedType(Inputs.AST->getASTContext(), AutoRange.getBegin());
 
   // if we can't resolve the type, return an error message
-  if (DeducedType == llvm::None)
+  if (DeducedType == llvm::None || (*DeducedType)->isUndeducedAutoType())
     return error("Could not deduce type for 'auto' type");
 
   // if it's a lambda expression, return an error message
   if (isa<RecordType>(*DeducedType) &&
-      dyn_cast<RecordType>(*DeducedType)->getDecl()->isLambda()) {
+      cast<RecordType>(*DeducedType)->getDecl()->isLambda()) {
     return error("Could not expand type of lambda expression");
   }
 
@@ -104,9 +137,8 @@ Expected<Tweak::Effect> ExpandAutoType::apply(const Selection& Inputs) {
   std::string PrettyTypeName = printType(*DeducedType,
       Inputs.ASTSelection.commonAncestor()->getDeclContext());
 
-  tooling::Replacement
-      Expansion(SrcMgr, CharSourceRange(CachedLocation->getSourceRange(), true),
-                PrettyTypeName);
+  tooling::Replacement Expansion(SrcMgr, CharSourceRange(AutoRange, true),
+                                 PrettyTypeName);
 
   return Effect::mainFileEdit(SrcMgr, tooling::Replacements(Expansion));
 }

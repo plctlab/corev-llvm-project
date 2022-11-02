@@ -15,11 +15,34 @@
 
 #include "RISCVSubtarget.h"
 #include "llvm/ADT/SmallSet.h"
+#include "llvm/CodeGen/MIRYamlMapping.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include <set>
 
 namespace llvm {
+
+class RISCVMachineFunctionInfo;
+
+namespace yaml {
+struct RISCVMachineFunctionInfo final : public yaml::MachineFunctionInfo {
+  int VarArgsFrameIndex;
+  int VarArgsSaveSize;
+
+  RISCVMachineFunctionInfo() = default;
+  RISCVMachineFunctionInfo(const llvm::RISCVMachineFunctionInfo &MFI);
+
+  void mappingImpl(yaml::IO &YamlIO) override;
+  ~RISCVMachineFunctionInfo() = default;
+};
+
+template <> struct MappingTraits<RISCVMachineFunctionInfo> {
+  static void mapping(IO &YamlIO, RISCVMachineFunctionInfo &MFI) {
+    YamlIO.mapOptional("varArgsFrameIndex", MFI.VarArgsFrameIndex);
+    YamlIO.mapOptional("varArgsSaveSize", MFI.VarArgsSaveSize);
+  }
+};
+} // end namespace yaml
 
 /// RISCVMachineFunctionInfo - This class is derived from MachineFunctionInfo
 /// and contains private RISCV-specific information for each MachineFunction.
@@ -32,14 +55,32 @@ private:
   /// FrameIndex used for transferring values between 64-bit FPRs and a pair
   /// of 32-bit GPRs via the stack.
   int MoveF64FrameIndex = -1;
+  /// FrameIndex of the spill slot for the scratch register in BranchRelaxation.
+  int BranchRelaxationScratchFrameIndex = -1;
   /// Size of any opaque stack adjustment due to save/restore libcalls.
   unsigned LibCallStackSize = 0;
   /// CORE-V specific: set of basic blocks containing hardware loop
   /// instructions, that should not be compressed.
   SmallSet<const MachineBasicBlock*, 4> HwlpBasicBlocks;
+  /// Size of RVV stack.
+  uint64_t RVVStackSize = 0;
+  /// Alignment of RVV stack.
+  Align RVVStackAlign;
+  /// Padding required to keep RVV stack aligned within the main stack.
+  uint64_t RVVPadding = 0;
+  /// Size of stack frame to save callee saved registers
+  unsigned CalleeSavedStackSize = 0;
+
+  /// Registers that have been sign extended from i32.
+  SmallVector<Register, 8> SExt32Registers;
 
 public:
   RISCVMachineFunctionInfo(const MachineFunction &MF) {}
+
+  MachineFunctionInfo *
+  clone(BumpPtrAllocator &Allocator, MachineFunction &DestMF,
+        const DenseMap<MachineBasicBlock *, MachineBasicBlock *> &Src2DstMBB)
+      const override;
 
   int getVarArgsFrameIndex() const { return VarArgsFrameIndex; }
   void setVarArgsFrameIndex(int Index) { VarArgsFrameIndex = Index; }
@@ -54,14 +95,22 @@ public:
     return MoveF64FrameIndex;
   }
 
+  int getBranchRelaxationScratchFrameIndex() const {
+    return BranchRelaxationScratchFrameIndex;
+  }
+  void setBranchRelaxationScratchFrameIndex(int Index) {
+    BranchRelaxationScratchFrameIndex = Index;
+  }
+
   unsigned getLibCallStackSize() const { return LibCallStackSize; }
   void setLibCallStackSize(unsigned Size) { LibCallStackSize = Size; }
 
   bool useSaveRestoreLibCalls(const MachineFunction &MF) const {
     // We cannot use fixed locations for the callee saved spill slots if the
-    // function uses a varargs save area.
+    // function uses a varargs save area, or is an interrupt handler.
     return MF.getSubtarget<RISCVSubtarget>().enableSaveRestore() &&
-           VarArgsSaveSize == 0 && !MF.getFrameInfo().hasTailCall();
+           VarArgsSaveSize == 0 && !MF.getFrameInfo().hasTailCall() &&
+           !MF.getFunction().hasFnAttribute("interrupt");
   }
 
   void pushHwlpBasicBlock(const MachineBasicBlock *BB) {
@@ -72,6 +121,22 @@ public:
       auto Res = HwlpBasicBlocks.find(BB);
       return Res != HwlpBasicBlocks.end();
   }
+  uint64_t getRVVStackSize() const { return RVVStackSize; }
+  void setRVVStackSize(uint64_t Size) { RVVStackSize = Size; }
+
+  Align getRVVStackAlign() const { return RVVStackAlign; }
+  void setRVVStackAlign(Align StackAlign) { RVVStackAlign = StackAlign; }
+
+  uint64_t getRVVPadding() const { return RVVPadding; }
+  void setRVVPadding(uint64_t Padding) { RVVPadding = Padding; }
+
+  unsigned getCalleeSavedStackSize() const { return CalleeSavedStackSize; }
+  void setCalleeSavedStackSize(unsigned Size) { CalleeSavedStackSize = Size; }
+
+  void initializeBaseYamlFields(const yaml::RISCVMachineFunctionInfo &YamlMFI);
+
+  void addSExt32Register(Register Reg);
+  bool isSExt32Register(Register Reg) const;
 };
 
 } // end namespace llvm

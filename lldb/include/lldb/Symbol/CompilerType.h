@@ -71,16 +71,20 @@ public:
 
   bool IsValid() const { return m_type != nullptr && m_type_system != nullptr; }
 
-  bool IsArrayType(CompilerType *element_type, uint64_t *size,
-                   bool *is_incomplete) const;
+  bool IsArrayType(CompilerType *element_type = nullptr,
+                   uint64_t *size = nullptr,
+                   bool *is_incomplete = nullptr) const;
 
-  bool IsVectorType(CompilerType *element_type, uint64_t *size) const;
+  bool IsVectorType(CompilerType *element_type = nullptr,
+                    uint64_t *size = nullptr) const;
 
   bool IsArrayOfScalarType() const;
 
   bool IsAggregateType() const;
 
   bool IsAnonymousType() const;
+
+  bool IsScopedEnumerationType() const;
 
   bool IsBeingDefined() const;
 
@@ -96,7 +100,7 @@ public:
 
   bool IsFloatingPointType(uint32_t &count, bool &is_complex) const;
 
-  bool IsFunctionType(bool *is_variadic_ptr = nullptr) const;
+  bool IsFunctionType() const;
 
   uint32_t IsHomogeneousAggregate(CompilerType *base_type_ptr) const;
 
@@ -108,13 +112,16 @@ public:
 
   bool IsFunctionPointerType() const;
 
-  bool IsBlockPointerType(CompilerType *function_pointer_type_ptr) const;
+  bool
+  IsBlockPointerType(CompilerType *function_pointer_type_ptr = nullptr) const;
 
   bool IsIntegerType(bool &is_signed) const;
 
   bool IsEnumerationType(bool &is_signed) const;
 
   bool IsIntegerOrEnumerationType(bool &is_signed) const;
+
+  bool IsBooleanType() const;
 
   bool IsPolymorphicClass() const;
 
@@ -156,7 +163,7 @@ public:
   /// \{
   TypeSystem *GetTypeSystem() const { return m_type_system; }
 
-  ConstString GetTypeName() const;
+  ConstString GetTypeName(bool BaseOnly = false) const;
 
   ConstString GetDisplayTypeName() const;
 
@@ -184,6 +191,8 @@ public:
   CompilerType GetCanonicalType() const;
 
   CompilerType GetFullyUnqualifiedType() const;
+
+  CompilerType GetEnumerationIntegerType() const;
 
   /// Returns -1 if this isn't a function of if the function doesn't
   /// have a prototype Returns a value >= 0 if there is a prototype.
@@ -331,14 +340,28 @@ public:
   GetIndexOfChildMemberWithName(const char *name, bool omit_empty_base_classes,
                                 std::vector<uint32_t> &child_indexes) const;
 
-  size_t GetNumTemplateArguments() const;
+  /// Return the number of template arguments the type has.
+  /// If expand_pack is true, then variadic argument packs are automatically
+  /// expanded to their supplied arguments. If it is false an argument pack
+  /// will only count as 1 argument.
+  size_t GetNumTemplateArguments(bool expand_pack = false) const;
 
-  lldb::TemplateArgumentKind GetTemplateArgumentKind(size_t idx) const;
-  CompilerType GetTypeTemplateArgument(size_t idx) const;
+  // Return the TemplateArgumentKind of the template argument at index idx.
+  // If expand_pack is true, then variadic argument packs are automatically
+  // expanded to their supplied arguments. With expand_pack set to false, an
+  // arguement pack will count as 1 argument and return a type of Pack.
+  lldb::TemplateArgumentKind
+  GetTemplateArgumentKind(size_t idx, bool expand_pack = false) const;
+  CompilerType GetTypeTemplateArgument(size_t idx,
+                                       bool expand_pack = false) const;
 
   /// Returns the value of the template argument and its type.
+  /// If expand_pack is true, then variadic argument packs are automatically
+  /// expanded to their supplied arguments. With expand_pack set to false, an
+  /// arguement pack will count as 1 argument and it is invalid to call this
+  /// method on the pack argument.
   llvm::Optional<IntegralTemplateArgument>
-  GetIntegralTemplateArgument(size_t idx) const;
+  GetIntegralTemplateArgument(size_t idx, bool expand_pack = false) const;
 
   CompilerType GetTypeForFormatters() const;
 

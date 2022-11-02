@@ -190,7 +190,6 @@ public:
   void addPreSched2() override;
   void addMachineSSAOptimization() override;
   void addPreRegAlloc() override;
-  bool addPreISel() override;
   void addPostRegAlloc() override;
 };
 } // namespace
@@ -217,6 +216,8 @@ bool RISCVPassConfig::addPreISel() {
     // deleted block address after enabling default outlining. See D99707 for
     // more details.
     addPass(createBarrierNoopPass());
+    //liaochunyu
+    addPass(createHardwareLoopsPass());
   }
 
   if (EnableGlobalMerge == cl::BOU_TRUE) {
@@ -296,12 +297,6 @@ void RISCVPassConfig::addPostRegAlloc() {
     addPass(createRISCVRedundantCopyEliminationPass());
 }
 
-bool RISCVPassConfig::addPreISel() {
-  if (TM->getOptLevel() != CodeGenOpt::None) {
-    addPass(createHardwareLoopsPass());
-  }
-  return false;
-}
 
 yaml::MachineFunctionInfo *
 RISCVTargetMachine::createDefaultFuncInfoYAML() const {

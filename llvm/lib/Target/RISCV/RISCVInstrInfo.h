@@ -34,6 +34,8 @@ enum CondCode {
   COND_GE,
   COND_LTU,
   COND_GEU,
+  CV_BEQIMM,
+  CV_BNEIMM,
   COND_INVALID
 };
 

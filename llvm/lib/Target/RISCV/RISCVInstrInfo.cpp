@@ -809,10 +809,10 @@ RISCVCC::CondCode RISCVCC::getOppositeBranchCondition(RISCVCC::CondCode CC) {
   case RISCVCC::COND_GEU:
     return RISCVCC::COND_LTU;
   //liaochunyu
-  case RISCV::CV_BEQIMM:
-    return RISCV::CV_BNEIMM;
-  case RISCV::CV_BNEIMM:
-    return RISCV::CV_BEQIMM;
+  case RISCVCC::CV_BEQIMM:
+    return RISCVCC::CV_BNEIMM;
+  case RISCVCC::CV_BNEIMM:
+    return RISCVCC::CV_BEQIMM;
   }
 }
 

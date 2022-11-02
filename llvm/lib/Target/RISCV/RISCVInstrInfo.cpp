@@ -1284,6 +1284,7 @@ bool RISCVInstrInfo::verifyInstruction(const MachineInstr &MI,
   case RISCVOp::OPERAND_UIMM##NUM:                                             \
     Ok = isUInt<NUM>(Imm);                                                     \
     break;
+        CASE_OPERAND_UIMM(1)
         CASE_OPERAND_UIMM(2)
         CASE_OPERAND_UIMM(3)
         CASE_OPERAND_UIMM(4)
@@ -1291,10 +1292,6 @@ bool RISCVInstrInfo::verifyInstruction(const MachineInstr &MI,
         CASE_OPERAND_UIMM(7)
         case RISCVOp::OPERAND_UIMM7_LSB00:
           Ok = isShiftedUInt<5, 2>(Imm);
-          break;
-        //liaochunyu
-        case RISCVOp::OPERAND_UIMM1:
-          Ok = isUInt<1>(Imm);
           break;
         case RISCVOp::OPERAND_UIMM8_LSB00:
           Ok = isShiftedUInt<6, 2>(Imm);

@@ -584,7 +584,7 @@ public:
     return IsConstantImm && isUInt<5>(Imm) && (Imm != 0) &&
            VK == RISCVMCExpr::VK_RISCV_None;
   }
-
+  
   bool isUImm2() { return IsUImm<2>(); }
   bool isUImm3() { return IsUImm<3>(); }
   bool isUImm5() { return IsUImm<5>(); }
@@ -615,12 +615,7 @@ public:
     if (!isImm())
       return false;
     bool IsConstantImm = evaluateConstantImm(getImm(), Imm, VK);
-    bool IsValid;
-    if (!IsConstantImm)
-      IsValid = RISCVAsmParser::classifySymbolRef(getImm(), VK, Imm);
-    else
-      IsValid = isUInt<5>(Imm) && (Imm & 1) == 0;
-    return IsValid && VK == RISCVMCExpr::VK_RISCV_None;
+    return IsConstantImm &&  isUInt<5>(Imm) && (Imm & 1) == 0 && VK == RISCVMCExpr::VK_RISCV_None;
   }
 
   bool isCVUImm12() const {
@@ -629,12 +624,7 @@ public:
     if (!isImm())
       return false;
     bool IsConstantImm = evaluateConstantImm(getImm(), Imm, VK);
-    bool IsValid;
-    if (!IsConstantImm)
-      IsValid = RISCVAsmParser::classifySymbolRef(getImm(), VK, Imm);
-    else
-      IsValid = isUInt<12>(Imm) && (Imm & 1) == 0;
-    return IsValid && VK == RISCVMCExpr::VK_RISCV_None;
+    return IsConstantImm && isUInt<12>(Imm)  && VK == RISCVMCExpr::VK_RISCV_None;
   }
 
   bool isSImm5() const {

@@ -76,7 +76,7 @@ RISCVAsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
       {"fixup_riscv_relax", 0, 0, 0},
       {"fixup_riscv_align", 0, 0, 0},
       {"fixup_riscv_cvpcrel_ui12", 20, 12, MCFixupKindInfo::FKF_IsPCRel},
-      {"fixup_riscv_cvpcrel_urs1", 15, 5, MCFixupKindInfo::FKF_IsPCRel}};
+      {"fixup_riscv_cvpcrel_urs1", 15, 5, MCFixupKindInfo::FKF_IsPCRel},
       {"fixup_riscv_set_8", 0, 8, 0},
       {"fixup_riscv_add_8", 0, 8, 0},
       {"fixup_riscv_sub_8", 0, 8, 0},

@@ -597,19 +597,19 @@ let Predicates = [HasExtXCoreVAlu] in {
 
 let Predicates = [HasExtXCoreVMem] in {
 
-  def : Pat<(sextloadi8 (add GPR:$base, GPR:$offset)),
+  def : Pat<(sextloadi8 (add GPR:$base, AddrRegImm:$offset)),
             (CV_LB_rr GPR:$base, GPR:$offset)>;
-  def : Pat<(zextloadi8 (add GPR:$base, GPR:$offset)),
+  def : Pat<(zextloadi8 (add GPR:$base, AddrRegImm:$offset)),
             (CV_LBU_rr GPR:$base, GPR:$offset)>;
-  def : Pat<(extloadi8 (add GPR:$base, GPR:$offset)),
+  def : Pat<(extloadi8 (add GPR:$base, AddrRegImm:$offset)),
             (CV_LBU_rr GPR:$base, GPR:$offset)>;
-  def : Pat<(sextloadi16 (add GPR:$base, GPR:$offset)),
+  def : Pat<(sextloadi16 (add GPR:$base, AddrRegImm:$offset)),
             (CV_LH_rr GPR:$base, GPR:$offset)>;
-  def : Pat<(zextloadi16 (add GPR:$base, GPR:$offset)),
+  def : Pat<(zextloadi16 (add GPR:$base, AddrRegImm:$offset)),
             (CV_LHU_rr GPR:$base, GPR:$offset)>;
-  def : Pat<(extloadi16 (add GPR:$base, GPR:$offset)),
+  def : Pat<(extloadi16 (add GPR:$base, AddrRegImm:$offset)),
             (CV_LHU_rr GPR:$base, GPR:$offset)>;
-  def : Pat<(load (add GPR:$base, GPR:$offset)),
+  def : Pat<(load (add GPR:$base, AddrRegImm:$offset)),
             (CV_LW_rr GPR:$base, GPR:$offset)>;
 
   def : Pat<(post_truncsti8 GPR:$val, GPR:$base, simm12:$offset),
@@ -626,11 +626,11 @@ let Predicates = [HasExtXCoreVMem] in {
   def : Pat<(post_store GPR:$val, GPR:$base, GPR:$offset),
             (CV_SW_rr_inc GPR:$val, GPR:$base, GPR:$offset)>;
 
-  def : Pat<(truncstorei8 GPR:$val, (add GPR:$base, GPR:$offset)),
+  def : Pat<(truncstorei8 GPR:$val, (add GPR:$base, AddrRegImm:$offset)),
             (CV_SB_rr GPR:$val, GPR:$base, GPR:$offset)>;
-  def : Pat<(truncstorei16 GPR:$val, (add GPR:$base, GPR:$offset)),
+  def : Pat<(truncstorei16 GPR:$val, (add GPR:$base, AddrRegImm:$offset)),
             (CV_SH_rr GPR:$val, GPR:$base, GPR:$offset)>;
-  def : Pat<(store GPR:$val, (add GPR:$base, GPR:$offset)),
+  def : Pat<(store GPR:$val, (add GPR:$base, AddrRegImm:$offset)),
             (CV_SW_rr GPR:$val, GPR:$base, GPR:$offset)>;
 
 }

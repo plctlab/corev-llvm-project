@@ -204,10 +204,14 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::BRCOND, MVT::Other, Custom);
   setOperationAction(ISD::SELECT_CC, XLenVT, Expand);
 
-  setCondCodeAction(ISD::SETLE, XLenVT, Expand);
+  //fix alu testcase
+  if (!Subtarget.hasExtXCoreVAlu())
+    setCondCodeAction(ISD::SETLE, XLenVT, Expand);
   setCondCodeAction(ISD::SETGT, XLenVT, Custom);
   setCondCodeAction(ISD::SETGE, XLenVT, Expand);
-  setCondCodeAction(ISD::SETULE, XLenVT, Expand);
+  //fix alu testcase
+  if (!Subtarget.hasExtXCoreVAlu())
+    setCondCodeAction(ISD::SETULE, XLenVT, Expand);
   setCondCodeAction(ISD::SETUGT, XLenVT, Custom);
   setCondCodeAction(ISD::SETUGE, XLenVT, Expand);
 
@@ -606,7 +610,6 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
       // nxvXi64 MULHS/MULHU requires the V extension instead of Zve64*.
       if (VT.getVectorElementType() == MVT::i64 && !Subtarget.hasStdExtV())
         setOperationAction({ISD::MULHU, ISD::MULHS}, VT, Expand);
-
       setOperationAction({ISD::SMIN, ISD::SMAX, ISD::UMIN, ISD::UMAX}, VT,
                          Legal);
 

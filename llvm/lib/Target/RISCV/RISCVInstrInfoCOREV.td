@@ -584,10 +584,9 @@ let Predicates = [HasExtXCoreVAlu] in {
 //===----------------------------------------------------------------------===//
 // Patterns for immediate branching operations
 //===----------------------------------------------------------------------===//
-
-  def : Pat<(brcond (XLenVT (seteq GPR:$rs1, simm5:$imm5)), bb:$imm12),
+  def : Pat<(riscv_brcc GPR:$rs1, simm5:$imm5, SETEQ, bb:$imm12),
             (CV_BEQIMM GPR:$rs1, simm5:$imm5, simm13_lsb0:$imm12)>;
-  def : Pat<(brcond (XLenVT (setne GPR:$rs1, simm5:$imm5)), bb:$imm12),
+  def : Pat<(riscv_brcc GPR:$rs1, simm5:$imm5, SETNE, bb:$imm12),
             (CV_BNEIMM GPR:$rs1, simm5:$imm5, simm13_lsb0:$imm12)>;
 
 }

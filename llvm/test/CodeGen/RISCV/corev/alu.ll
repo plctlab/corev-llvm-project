@@ -132,10 +132,15 @@ define i32 @clipr(i32 %a, i32 %b) {
   ret i32 %3
 }
 
+
+// https://alive2.llvm.org/ce/z/sR5GTy
+// llvm.umax.i32(i32 %a, i32 0) has been optimized to %a, 
+// so it can't generate cv.clipu instruction
 define i32 @clipu(i32 %a) {
 ; CHECK-LABEL: clipu:
 ; CHECK:       # %bb.0:
-; CHECK-NEXT:    cv.clipu a0, a0, 5
+; CHECK-NEXT:    li a1, 15
+; CHECK-NEXT:    cv.minu a0, a0, a1
 ; CHECK-NEXT:    ret
   %1 = call i32 @llvm.umax.i32(i32 %a, i32 0)
   %2 = call i32 @llvm.umin.i32(i32 %1, i32 15)
@@ -145,7 +150,7 @@ define i32 @clipu(i32 %a) {
 define i32 @clipur(i32 %a, i32 %b) {
 ; CHECK-LABEL: clipur:
 ; CHECK:       # %bb.0:
-; CHECK-NEXT:    cv.clipur a0, a0, a1
+; CHECK-NEXT:    cv.minu a0, a0, a1
 ; CHECK-NEXT:    ret
   %1 = call i32 @llvm.umax.i32(i32 %a, i32 0)
   %2 = call i32 @llvm.umin.i32(i32 %1, i32 %b)
@@ -334,10 +339,10 @@ define i32 @beqimm(i32 %a) {
 ; CHECK-NEXT:    cv.beqimm a0, 5, .LBB31_2
 ; CHECK-NEXT:    j .LBB31_1
 ; CHECK-NEXT:  .LBB31_1: # %f
-; CHECK-NEXT:    mv a0, zero
+; CHECK-NEXT:    li a0, 0
 ; CHECK-NEXT:    ret
 ; CHECK-NEXT:  .LBB31_2: # %t
-; CHECK-NEXT:    addi a0, zero, 1
+; CHECK-NEXT:    li a0, 1
 ; CHECK-NEXT:    ret
   %1 = icmp eq i32 %a, 5
   br i1 %1, label %t, label %f
@@ -353,10 +358,10 @@ define i32 @bneimm(i32 %a) {
 ; CHECK-NEXT:    cv.bneimm a0, 5, .LBB32_2
 ; CHECK-NEXT:    j .LBB32_1
 ; CHECK-NEXT:  .LBB32_1: # %f
-; CHECK-NEXT:    mv a0, zero
+; CHECK-NEXT:    li a0, 0
 ; CHECK-NEXT:    ret
 ; CHECK-NEXT:  .LBB32_2: # %t
-; CHECK-NEXT:    addi a0, zero, 1
+; CHECK-NEXT:    li a0, 1
 ; CHECK-NEXT:    ret
   %1 = icmp ne i32 %a, 5
   br i1 %1, label %t, label %f

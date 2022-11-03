@@ -133,9 +133,9 @@ define i32 @clipr(i32 %a, i32 %b) {
 }
 
 
-// https://alive2.llvm.org/ce/z/sR5GTy
-// llvm.umax.i32(i32 %a, i32 0) has been optimized to %a, 
-// so it can't generate cv.clipu instruction
+; https://alive2.llvm.org/ce/z/sR5GTy
+; llvm.umax.i32(i32 %a, i32 0) has been optimized to %a, 
+; so it can't generate cv.clipu instruction
 define i32 @clipu(i32 %a) {
 ; CHECK-LABEL: clipu:
 ; CHECK:       # %bb.0:
